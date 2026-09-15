@@ -91,7 +91,10 @@ export function CpuCard({ cpu, load, history, className }: CpuCardProps) {
         />
       </StatGrid>
 
-      <div className="mt-5">
+      {/* The chart takes whatever height the card has left. In the 12-column grid this
+          card sits beside the taller score panel, so without this the surplus became a
+          blank strip under the thread bars — here it becomes resolution on the curve. */}
+      <div className="mt-5 flex min-h-0 flex-1 flex-col">
         <div className="flex items-baseline justify-between">
           <h3 className="text-xs font-medium text-ink-2">Auslastung, letzte 60 Sekunden</h3>
           {load.processCount !== null && (
@@ -99,9 +102,9 @@ export function CpuCard({ cpu, load, history, className }: CpuCardProps) {
           )}
         </div>
 
-        <div className="mt-2 -ml-1">
-          <ResponsiveContainer width="100%" height={150}>
-            <AreaChart data={history} margin={{ top: 6, right: 6, bottom: 0, left: -26 }}>
+        <div className="mt-2 min-h-37.5 flex-1">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={history} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="hf-cpu-fill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={CPU_HUE} stopOpacity={0.32} />
@@ -123,7 +126,9 @@ export function CpuCard({ cpu, load, history, className }: CpuCardProps) {
                 tick={{ fill: AXIS_TEXT, fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
-                width={46}
+                // Wide enough for "100 %" — a narrower axis silently clips the labels
+                // to their unit and leaves the scale unreadable.
+                width={44}
                 tickFormatter={(value: number) => `${value} %`}
               />
               <Tooltip content={CpuTooltip} cursor={{ stroke: '#4b5263', strokeWidth: 1 }} />

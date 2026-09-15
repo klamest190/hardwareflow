@@ -66,8 +66,11 @@ export function MemoryCard({ memory, history, className }: MemoryCardProps) {
         </div>
       }
     >
-      <div className="-mx-1 -mt-1">
-        <ResponsiveContainer width="100%" height={56}>
+      {/* Grows into whatever height the card is stretched to — in this row the storage
+          card is the tallest, and the surplus is better spent on more of the curve than
+          on a blank strip above the swap bar. */}
+      <div className="-mx-1 -mt-1 min-h-14 flex-1">
+        <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={history} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
             <defs>
               <linearGradient id="hf-ram-fill" x1="0" y1="0" x2="0" y2="1">
@@ -116,7 +119,7 @@ export function MemoryCard({ memory, history, className }: MemoryCardProps) {
         <Stat label="Frei" value={formatBytes(memory.freeBytes)} swatch={FREE_TRACK} />
       </StatGrid>
 
-      <div className="mt-auto border-t border-hairline pt-4">
+      <div className="mt-4 border-t border-hairline pt-4">
         <div className="flex items-baseline justify-between">
           <h3 className="text-xs font-medium text-ink-2">Auslagerungsdatei</h3>
           <span className="text-[11px] text-muted tabular-nums">
