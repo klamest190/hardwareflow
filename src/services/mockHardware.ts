@@ -70,7 +70,8 @@ const BASE_GPUS: GpuInfo[] = [
   {
     id: 'gpu-0',
     vendor: 'NVIDIA',
-    model: 'GeForce RTX 4080 SUPER',
+    // Wie echte NVIDIA-Treiber es melden: der Modellname enthält den Hersteller bereits.
+    model: 'NVIDIA GeForce RTX 4080 SUPER',
     driverVersion: '566.36',
     integrated: false,
     vramTotalBytes: 16 * GIB,
@@ -83,7 +84,7 @@ const BASE_GPUS: GpuInfo[] = [
   {
     id: 'gpu-1',
     vendor: 'AMD',
-    model: 'Raphael iGPU',
+    model: 'AMD Radeon(TM) Raphael iGPU',
     driverVersion: '31.0.24027',
     integrated: true,
     vramTotalBytes: null,

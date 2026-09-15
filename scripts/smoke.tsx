@@ -6,7 +6,7 @@ import { GpuCard } from '../src/components/GpuCard'
 import { MemoryCard } from '../src/components/MemoryCard'
 import { PerformanceMeter } from '../src/components/PerformanceMeter'
 import { StorageCard } from '../src/components/StorageCard'
-import { formatBytes, formatThroughput, formatUptime } from '../src/lib/format'
+import { describeDevice, formatBytes, formatThroughput, formatUptime } from '../src/lib/format'
 import {
   activeSource,
   computePerformanceScore,
@@ -197,6 +197,20 @@ const blind: HardwareSnapshot = {
 checkScore(blind, -2)
 
 // 4. Formatierung.
+// Geräte-Namen: gemessen auf echter Hardware melden NVIDIA und Intel ihren Namen
+// bereits im Modell, der CPU-Hersteller dagegen nicht.
+const deviceCases: Array<[string, string, string]> = [
+  ['NVIDIA', 'NVIDIA GeForce RTX 4070 Laptop GPU', 'NVIDIA GeForce RTX 4070 Laptop GPU'],
+  ['Intel', 'Intel(R) Arc(TM) Graphics', 'Intel Arc Graphics'],
+  ['Intel', 'Core™ Ultra 7 155H', 'Intel Core Ultra 7 155H'],
+  ['AMD', 'Ryzen 9 7950X3D', 'AMD Ryzen 9 7950X3D'],
+  ['', 'Unbekannter Grafikadapter', 'Unbekannter Grafikadapter'],
+]
+for (const [vendor, model, expected] of deviceCases) {
+  const actual = describeDevice(vendor, model)
+  check(actual === expected, `describeDevice(${vendor}, ${model}) → "${actual}" statt "${expected}"`)
+}
+
 check(formatBytes(64 * GIB, 0) === '64 GB', `formatBytes(64 GiB) → ${formatBytes(64 * GIB, 0)}`)
 check(formatBytes(0) === '0 B', `formatBytes(0) → ${formatBytes(0)}`)
 check(formatThroughput(null) === '—', `formatThroughput(null) → ${formatThroughput(null)}`)
@@ -246,6 +260,12 @@ for (const expected of [
 ]) {
   check(markup.includes(expected), `Markup enthält "${expected}" nicht`)
 }
+
+// Der Herstellername darf nirgends doppelt stehen.
+for (const doubled of ['NVIDIA NVIDIA', 'Intel Intel', 'AMD AMD']) {
+  check(!markup.includes(doubled), `Markup enthält den Hersteller doppelt: "${doubled}"`)
+}
+check(!markup.includes('(TM)') && !markup.includes('(R)'), 'Markup enthält (TM)/(R)-Marken')
 
 // … und die Kopfzeile zählt nur die lokalen Volumes, nicht die Freigabe.
 const localVolumes = snapshot.drives.filter((drive) => !drive.remote).length

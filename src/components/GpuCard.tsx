@@ -1,6 +1,6 @@
 import { MonitorSmartphone, Sparkles } from 'lucide-react'
 
-import { formatBytes, formatPercent } from '../lib/format'
+import { describeDevice, formatBytes, formatPercent } from '../lib/format'
 import { loadColor } from '../lib/status'
 import type { GpuInfo } from '../types/hardware'
 import { Card } from './ui/Card'
@@ -57,7 +57,7 @@ export function GpuCard({ gpus, className }: GpuCardProps) {
   return (
     <Card
       title="Grafik"
-      subtitle={[gpu.vendor, gpu.model].filter(Boolean).join(' ')}
+      subtitle={describeDevice(gpu.vendor, gpu.model)}
       icon={MonitorSmartphone}
       accent={GPU_HUE}
       className={className}
@@ -151,7 +151,7 @@ export function GpuCard({ gpus, className }: GpuCardProps) {
           <ul className="mt-1.5 space-y-1">
             {others.map((other) => (
               <li key={other.id} className="flex items-baseline justify-between gap-3 text-[11px]">
-                <span className="truncate text-ink-2">{other.model}</span>
+                <span className="truncate text-ink-2">{describeDevice(other.vendor, other.model)}</span>
                 <span className="shrink-0 text-muted">
                   {other.integrated ? 'integriert' : 'dediziert'}
                 </span>

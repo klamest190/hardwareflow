@@ -10,7 +10,7 @@ import {
 } from 'recharts'
 import type { TooltipContentProps } from 'recharts'
 
-import { formatClockTime, formatPercent } from '../lib/format'
+import { describeDevice, formatClockTime, formatPercent } from '../lib/format'
 import { loadColor } from '../lib/status'
 import type { CpuInfo, CpuLoad, LoadSample } from '../types/hardware'
 import { Card } from './ui/Card'
@@ -58,7 +58,7 @@ export function CpuCard({ cpu, load, history, className }: CpuCardProps) {
   return (
     <Card
       title="Prozessor"
-      subtitle={`${cpu.vendor} ${cpu.model}`}
+      subtitle={describeDevice(cpu.vendor, cpu.model)}
       icon={Cpu}
       accent={CPU_HUE}
       className={className}

@@ -42,6 +42,40 @@ export function formatClockTime(timestamp: number): string {
   })
 }
 
+/**
+ * Strips the legal marks vendors bake into device names — `(R)`, `(TM)`, `®`, `™` —
+ * and collapses the whitespace they leave behind.
+ */
+function tidyDeviceName(value: string): string {
+  return value
+    .replace(/\((?:R|TM|C)\)/gi, '')
+    .replace(/[®™©]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Vendor and model as one line, without saying the vendor twice.
+ *
+ * Drivers disagree about whether the model already contains the manufacturer. Measured
+ * on a real machine: NVIDIA reports vendor `NVIDIA` with model
+ * `NVIDIA GeForce RTX 4070 Laptop GPU`, and Intel reports `Intel` with
+ * `Intel(R) Arc(TM) Graphics` — joined naively both read the brand twice. The CPU on the
+ * same machine reports `Intel` with `Core™ Ultra 7 155H`, which does need the vendor in
+ * front. So the prefix is added only when it is actually missing.
+ */
+export function describeDevice(vendor: string, model: string): string {
+  const cleanVendor = tidyDeviceName(vendor)
+  const cleanModel = tidyDeviceName(model)
+
+  if (!cleanVendor) return cleanModel
+  if (!cleanModel) return cleanVendor
+
+  return cleanModel.toLowerCase().startsWith(cleanVendor.toLowerCase())
+    ? cleanModel
+    : `${cleanVendor} ${cleanModel}`
+}
+
 /** Throughput in MB/s; an em dash when idle or unavailable. */
 export function formatThroughput(mbPerSecond: number | null): string {
   if (mbPerSecond === null || mbPerSecond < 1) return '—'

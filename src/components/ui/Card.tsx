@@ -85,7 +85,17 @@ export function Card({
           </span>
           <div className="min-w-0">
             <h2 className="text-[15px] leading-5 font-semibold text-ink">{title}</h2>
-            {subtitle && <p className="mt-0.5 truncate text-xs leading-4 text-muted">{subtitle}</p>}
+            {/*
+              The hardware's own name — which processor, which card, which modules. It is
+              why someone opens a system monitor, so it sits one step below the title on
+              ink-2 rather than being greyed out with the captions. No `truncate` either:
+              a model name cut off mid-word answers nothing, and wrapping costs one line.
+            */}
+            {subtitle && (
+              <p className="mt-1 text-[13px] leading-4.5 font-medium wrap-break-word text-ink-2">
+                {subtitle}
+              </p>
+            )}
           </div>
         </div>
         {action && <div className="shrink-0 text-right">{action}</div>}
