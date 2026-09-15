@@ -1,0 +1,83 @@
+{
+  "name": "hardwareflow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Dark-Mode System-Monitor mit echtem Hardware-Zugriff",
+  "author": "HardwareFlow",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/build-electron.mjs && node scripts/dev-electron.mjs",
+    "dev:web": "vite",
+    "build": "tsc -b && vite build",
+    "build:electron": "node scripts/build-electron.mjs",
+    "start": "npm run build && npm run build:electron && node scripts/start-app.mjs",
+    "package": "npm run build && npm run build:electron && electron-builder",
+    "icon": "node scripts/make-icon.mjs",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "smoke": "node scripts/headless.mjs scripts/smoke.tsx",
+    "check": "npm run lint && npm run build && npm run smoke",
+    "probe": "node scripts/build-electron.mjs && node dist-electron/probeReport.cjs",
+    "selftest:app": "npm run build && npm run build:electron && node scripts/selftest-app.mjs"
+  },
+  "dependencies": {
+    "systeminformation": "^5.33.10"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "framer-motion": "^13.2.0",
+    "lucide-react": "^1.45.0",
+    "oxlint": "^1.81.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "recharts": "^3.10.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "build": {
+    "appId": "com.hardwareflow.desktop",
+    "productName": "HardwareFlow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility",
+      "icon": "build/icon.png"
+    }
+  }
+}

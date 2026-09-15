@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/*
+ * HardwareFlow design tokens.
+ *
+ * The series hues are the validated dark-mode categorical slots (blue / aqua /
+ * violet / yellow) checked against this app's chart surface (#14161c):
+ * lightness band, chroma floor, adjacent CVD separation, normal-vision floor
+ * and 3:1 contrast all pass. Do not hand-tune them — re-run the palette
+ * validator if they ever need to change.
+ */
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Inter", sans-serif;
+
+  /* Surfaces & chrome (slate/zinc) */
+  --color-plane: #0a0b0f;
+  --color-surface: #14161c;
+  --color-surface-2: #1b1e26;
+  --color-hairline: #262a33;
+  --color-baseline: #333845;
+
+  /* Ink */
+  --color-ink: #f1f5f9;
+  --color-ink-2: #cbd5e1;
+  --color-muted: #8b93a3;
+
+  /* Series identity — one hue per subsystem */
+  --color-cpu: #3987e5;
+  --color-ram: #199e70;
+  --color-gpu: #9085e9;
+  --color-disk: #c98500;
+
+  /* Status — reserved, never used as a series colour */
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #d03b3b;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-plane);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Recharts focus rings would otherwise sit on top of the cards. */
+  .recharts-wrapper:focus,
+  .recharts-surface:focus {
+    outline: none;
+  }
+}
+
+
+/*
+ * Neon accent of the hardware cards.
+ *
+ * Every shade is derived from the `--hf-accent` custom property the Card component
+ * sets, so a module's hue is stated once in TSX and never mixed by hand. The colour
+ * stays in chrome — border, bloom, icon chip — so no saturated fill ever sits under
+ * text and the ink tokens keep their contrast.
+ */
+.hf-chip {
+  background-color: color-mix(in oklab, var(--hf-accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hf-accent) 20%, transparent);
+}
+
+.hf-card-neon {
+  border-color: color-mix(in oklab, var(--hf-accent) 34%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in oklab, var(--hf-accent) 16%, transparent),
+    0 0 24px -12px var(--hf-accent),
+    0 18px 40px -30px #000;
+  transition:
+    box-shadow 260ms ease,
+    border-color 260ms ease;
+}
+
+/* Pointing at a card lifts its glow — makes the grid feel live without animating
+   anything on its own. */
+.hf-card-neon:hover {
+  border-color: color-mix(in oklab, var(--hf-accent) 56%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in oklab, var(--hf-accent) 26%, transparent),
+    0 0 36px -10px var(--hf-accent),
+    0 20px 44px -28px #000;
+}
+
+.hf-card-neon .hf-chip {
+  background-color: color-mix(in oklab, var(--hf-accent) 20%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--hf-accent) 42%, transparent),
+    0 0 18px -6px var(--hf-accent);
+}
+
+/* The header's score ring. A class rather than an inline style, so the reduced-motion
+   guard below can reach it. */
+.hf-score-ring {
+  transition: stroke-dashoffset 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hf-card-neon,
+  .hf-score-ring {
+    transition: none;
+  }
+}
+
+/* Faint plane texture so the cards read as raised panels, not floating boxes. One
+   very low-alpha wash per subsystem hue, placed roughly where that card sits. */
+.hf-plane {
+  background-image:
+    radial-gradient(circle at 12% -8%, rgba(57, 135, 229, 0.12), transparent 52%),
+    radial-gradient(circle at 88% -4%, rgba(144, 133, 233, 0.1), transparent 48%),
+    radial-gradient(circle at 20% 78%, rgba(25, 158, 112, 0.08), transparent 45%),
+    radial-gradient(circle at 78% 88%, rgba(201, 133, 0, 0.07), transparent 45%);
+  background-attachment: fixed;
+}
