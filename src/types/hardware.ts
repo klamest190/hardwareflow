@@ -69,6 +69,8 @@ export interface MemoryInfo {
   speedMhz: number | null
   slotsUsed: number | null
   slotsTotal: number | null
+  /** `true` when every module reports ECC; `null` when the layout is unreadable. */
+  ecc: boolean | null
 }
 
 export type DriveKind = 'nvme' | 'ssd' | 'hdd'
@@ -135,6 +137,80 @@ export interface GpuInfo {
   powerDrawWatts: number | null
 }
 
+export type NetworkKind = 'wired' | 'wireless' | 'virtual'
+
+/** A network adapter that is up. Adapters that are down are not worth a row. */
+export interface NetworkAdapter {
+  id: string
+  /** Connection name as Windows shows it, e.g. `WLAN`. */
+  name: string
+  /** Hardware name, e.g. `Intel Wi-Fi 7 BE202 160MHz`. */
+  adapter: string
+  kind: NetworkKind
+  /** `true` for the adapter carrying the default route. */
+  isDefault: boolean
+  /** Negotiated link speed; `null` when the driver reports none. */
+  linkMbps: number | null
+  ipv4: string | null
+  /** `null` until two counter samples exist, or when the adapter reports none. */
+  rxBytesPerSec: number | null
+  txBytesPerSec: number | null
+}
+
+export interface WifiLink {
+  ssid: string
+  /** Signal strength in dBm, e.g. `-57`. */
+  signalDbm: number | null
+  /** 0–100 as Windows rates it. */
+  quality: number | null
+  frequencyMhz: number | null
+  /** e.g. `802.11ax`. */
+  standard: string | null
+}
+
+export interface NetworkInfo {
+  /** Adapters that are up, default adapter first. */
+  adapters: NetworkAdapter[]
+  wifi: WifiLink | null
+  /**
+   * The fastest wired port the hardware has, including unplugged ones — a 2.5 GbE port
+   * is a property of the machine even without a cable. Read from the adapter name when
+   * the driver reports no speed for a port that is down.
+   */
+  bestWiredMbps: number | null
+  /** e.g. `Wi-Fi 7`, from the adapter name; `null` when not recognisable. */
+  wifiGeneration: string | null
+}
+
+export interface BatteryInfo {
+  percent: number
+  charging: boolean
+  acConnected: boolean
+  designCapacityMwh: number | null
+  fullChargeCapacityMwh: number | null
+  /** Full-charge against design capacity, 0–100. */
+  healthPercent: number | null
+  /** Windows usually reports 0 here, which becomes `null`. */
+  cycleCount: number | null
+  /** Minutes left on battery; `null` on AC or when unknown. */
+  minutesRemaining: number | null
+}
+
+/** One program with all its processes folded together — Chrome is one line, not forty. */
+export interface ProcessGroup {
+  name: string
+  instances: number
+  /** Share of the whole machine, 0–100. */
+  cpuPercent: number
+  memoryBytes: number
+}
+
+export interface ProcessSummary {
+  count: number
+  byCpu: ProcessGroup[]
+  byMemory: ProcessGroup[]
+}
+
 /** One point in the rolling live-graph window. */
 export interface LoadSample {
   /** Epoch milliseconds. */
@@ -142,6 +218,9 @@ export interface LoadSample {
   cpuPercent: number
   memoryPercent: number
   gpuPercent: number | null
+  /** Summed over all adapters that are up; `null` before the first counter delta. */
+  netRxBytesPerSec: number | null
+  netTxBytesPerSec: number | null
 }
 
 /** Where the numbers came from — surfaced in the UI so the two are never confused. */
@@ -159,6 +238,11 @@ export interface HardwareReading {
   gpus: GpuInfo[]
   drives: StorageDrive[]
   physicalDisks: PhysicalDisk[]
+  network: NetworkInfo
+  /** `null` on machines without a battery. */
+  battery: BatteryInfo | null
+  /** `null` until the process table has been read once. */
+  processes: ProcessSummary | null
 }
 
 export interface HardwareSnapshot extends HardwareReading {
@@ -166,24 +250,78 @@ export interface HardwareSnapshot extends HardwareReading {
   history: LoadSample[]
 }
 
-/** Severity band of the HardwareFlow score — maps onto the status palette. */
-export type ScoreGrade = 'excellent' | 'good' | 'warning' | 'serious' | 'critical'
+/** Class of the machine by its HardwareFlow score. */
+export type ScoreGrade = 'high-end' | 'strong' | 'solid' | 'entry' | 'dated'
 
-/** One weighted input to the overall score. */
+export type ScoreComponentKey = 'cpu' | 'memory' | 'gpu' | 'storage' | 'extras'
+
+/** One weighted input to the HardwareFlow score. */
 export interface ScoreComponent {
-  key: 'cpu' | 'memory' | 'gpu' | 'storage' | 'headroom'
+  key: ScoreComponentKey
   label: string
   /** Sub-score, 0–100. */
   score: number
   /** Contribution to the total; all weights sum to 1. */
   weight: number
-  /** Short human-readable reason for the sub-score. */
+  /** Why this sub-score — shown under the bar, so the number is auditable. */
   detail: string
+  /** `true` when the value comes from a formula rather than the benchmark table. */
+  estimated: boolean
 }
 
-export interface PerformanceScore {
-  /** 0–100, rounded. */
+/** Something about the machine beyond its chips, counted in the extras component. */
+export interface ScoreBadge {
+  key: string
+  label: string
+  /** Contribution to the extras sub-score, which is capped at 100. */
+  points: number
+}
+
+/**
+ * The HardwareFlow score, 0–100: what the machine *is*. Deliberately independent of
+ * load, so it is the same number on every tick and can be compared between machines —
+ * what the machine has left right now is `Headroom`.
+ */
+export interface HardwareScore {
   total: number
   grade: ScoreGrade
   components: ScoreComponent[]
+  badges: ScoreBadge[]
+}
+
+/** Live headroom: how much of the machine is still free right now. */
+export interface Headroom {
+  /** 0–100, averaged over the last few seconds. */
+  percent: number
+  cpuPercent: number
+  memoryPercent: number
+  gpuPercent: number | null
+  /** Seconds the average spans. */
+  windowSeconds: number
+}
+
+/** One minute of history, as the main process stores it. */
+export interface HistoryBucket {
+  /** Start of the minute, epoch milliseconds. */
+  t: number
+  cpuAvg: number
+  cpuMax: number
+  memAvg: number
+  gpuAvg: number | null
+  cpuTempMax: number | null
+  gpuTempMax: number | null
+  netRxAvg: number | null
+  netTxAvg: number | null
+  /** Free bytes on the system volume at the end of the minute. */
+  systemFreeBytes: number | null
+  systemTotalBytes: number | null
+}
+
+export type AlertKey = 'cpu-temp' | 'gpu-temp' | 'memory' | 'system-drive' | 'battery'
+
+export interface HardwareAlert {
+  key: AlertKey
+  title: string
+  message: string
+  severity: 'warning' | 'critical'
 }

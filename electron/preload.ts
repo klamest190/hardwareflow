@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { HardwareReading } from '../src/types/hardware'
+import type { DesktopSettings } from '../src/types/bridge'
+import type { HardwareReading, HistoryBucket } from '../src/types/hardware'
 
 /**
  * The entire surface the renderer gets. No `require`, no filesystem, no direct
- * `ipcRenderer` — only these four functions, over a context bridge.
+ * `ipcRenderer` — only these functions, over a context bridge.
  */
 contextBridge.exposeInMainWorld('hardwareflow', {
   platform: process.platform,
@@ -24,4 +25,17 @@ contextBridge.exposeInMainWorld('hardwareflow', {
     ipcRenderer.on('hardware:error', handler)
     return () => ipcRenderer.removeListener('hardware:error', handler)
   },
+
+  getHistory: (): Promise<HistoryBucket[]> => ipcRenderer.invoke('history:get'),
+
+  getSettings: (): Promise<DesktopSettings> => ipcRenderer.invoke('settings:get'),
+
+  updateSettings: (patch: Partial<DesktopSettings>): Promise<DesktopSettings> =>
+    ipcRenderer.invoke('settings:update', patch),
+
+  openMiniView: (): Promise<void> => ipcRenderer.invoke('window:openMini'),
+
+  closeWindow: (): Promise<void> => ipcRenderer.invoke('window:close'),
+
+  showDashboard: (): Promise<void> => ipcRenderer.invoke('window:showDashboard'),
 })

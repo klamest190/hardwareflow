@@ -32,7 +32,7 @@ interface StorageCardProps {
  *
  * Network shares are listed apart from the local volumes and excluded from the totals.
  * Windows maps them to drive letters alongside real disks, so counting one would put a
- * file server's fill level into this machine's capacity — and into its score.
+ * file server's fill level into this machine's capacity.
  */
 export function StorageCard({ drives, physicalDisks, className }: StorageCardProps) {
   const local = drives.filter((drive) => !drive.remote)
@@ -130,7 +130,7 @@ export function StorageCard({ drives, physicalDisks, className }: StorageCardPro
             <h3 className="text-[11px] leading-4 font-medium tracking-wide text-muted uppercase">
               Netzlaufwerke
             </h3>
-            <span className="text-[10px] text-muted">nicht im Score</span>
+            <span className="text-[10px] text-muted">nicht in der Summe</span>
           </div>
           <ul className="mt-2 space-y-1.5">
             {remote.map((drive) => {

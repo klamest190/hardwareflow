@@ -3,8 +3,11 @@ import type {
   CpuLoad,
   GpuInfo,
   HardwareReading,
+  HistoryBucket,
   MemoryInfo,
+  NetworkInfo,
   PhysicalDisk,
+  ProcessGroup,
   StorageDrive,
   SystemInfo,
 } from '../types/hardware'
@@ -64,6 +67,7 @@ const BASE_MEMORY: MemoryInfo = {
   speedMhz: 6000,
   slotsUsed: 4,
   slotsTotal: 4,
+  ecc: false,
 }
 
 const BASE_GPUS: GpuInfo[] = [
@@ -187,6 +191,36 @@ const BASE_DISKS: PhysicalDisk[] = [
   },
 ]
 
+const BASE_NETWORK: NetworkInfo = {
+  adapters: [
+    {
+      id: 'eth0',
+      name: 'Ethernet',
+      adapter: 'Intel Ethernet Controller I226-V',
+      kind: 'wired',
+      isDefault: true,
+      linkMbps: 2500,
+      ipv4: '192.168.1.20',
+      rxBytesPerSec: 0,
+      txBytesPerSec: 0,
+    },
+  ],
+  wifi: null,
+  bestWiredMbps: 2500,
+  wifiGeneration: 'Wi-Fi 7',
+}
+
+/** Programs of a typical workstation day, with their resting footprint. */
+const BASE_PROCESSES: ProcessGroup[] = [
+  { name: 'chrome.exe', instances: 38, cpuPercent: 2.1, memoryBytes: 4.2 * GIB },
+  { name: 'Code.exe', instances: 14, cpuPercent: 1.4, memoryBytes: 2.1 * GIB },
+  { name: 'blender.exe', instances: 1, cpuPercent: 0.4, memoryBytes: 3.6 * GIB },
+  { name: 'docker-desktop.exe', instances: 6, cpuPercent: 0.8, memoryBytes: 1.9 * GIB },
+  { name: 'Discord.exe', instances: 7, cpuPercent: 0.3, memoryBytes: 0.9 * GIB },
+  { name: 'explorer.exe', instances: 1, cpuPercent: 0.2, memoryBytes: 0.2 * GIB },
+  { name: 'MsMpEng.exe', instances: 1, cpuPercent: 0.6, memoryBytes: 0.4 * GIB },
+]
+
 /**
  * Holds the mutable simulation state between ticks. One instance per subscription,
  * so React Strict Mode's double mount cannot desync the walk.
@@ -199,6 +233,8 @@ export class MockHardwareSource {
   private memory: MemoryInfo = { ...BASE_MEMORY }
   private gpu: GpuInfo = { ...BASE_GPUS[0] }
   private drives: StorageDrive[] = BASE_DRIVES.map((drive) => ({ ...drive }))
+  private rx = 180_000
+  private tx = 40_000
 
   /** Stable per-thread bias, so core 0 is consistently busier than core 27. */
   private readonly coreBias = Array.from({ length: BASE_CPU.threads }, (_, index) =>
@@ -290,6 +326,11 @@ export class MockHardwareSource {
       }
     })
 
+    // Mostly quiet, with a download riding along the load bursts.
+    const rxTarget = this.burstTicks > 0 ? 38_000_000 + Math.random() * 60_000_000 : 150_000
+    this.rx = walk(this.rx, rxTarget, 60_000 + this.rx * 0.08, 0, 290_000_000)
+    this.tx = walk(this.tx, this.burstTicks > 0 ? 2_400_000 : 40_000, 12_000 + this.tx * 0.08, 0, 290_000_000)
+
     this.system = { ...this.system, uptimeSeconds: this.system.uptimeSeconds + 1 }
   }
 
@@ -302,6 +343,23 @@ export class MockHardwareSource {
     const mean = raw.reduce((sum, value) => sum + value, 0) / raw.length
     const correction = this.cpuUsage - mean
     return raw.map((value) => clamp(value + correction, 0, 100))
+  }
+
+  /** The busiest program follows the load, so the list visibly reacts to a burst. */
+  private processes() {
+    const groups = BASE_PROCESSES.map((group, index) => ({
+      ...group,
+      cpuPercent:
+        index === 2 && this.burstTicks > 0
+          ? this.cpuUsage * 0.8
+          : group.cpuPercent * (0.6 + Math.random() * 0.8),
+      memoryBytes: index === 2 && this.burstTicks > 0 ? group.memoryBytes * 2.4 : group.memoryBytes,
+    }))
+    return {
+      count: 248 + Math.round(this.cpuUsage * 0.8),
+      byCpu: [...groups].sort((a, b) => b.cpuPercent - a.cpuPercent),
+      byMemory: [...groups].sort((a, b) => b.memoryBytes - a.memoryBytes),
+    }
   }
 
   /** Advances the simulation and returns the resulting reading. */
@@ -328,6 +386,62 @@ export class MockHardwareSource {
       gpus: [this.gpu, BASE_GPUS[1]],
       drives: this.drives.map((drive) => ({ ...drive })),
       physicalDisks: BASE_DISKS.map((disk) => ({ ...disk })),
+      network: {
+        ...BASE_NETWORK,
+        adapters: BASE_NETWORK.adapters.map((adapter) => ({
+          ...adapter,
+          rxBytesPerSec: this.rx,
+          txBytesPerSec: this.tx,
+        })),
+      },
+      // A desktop workstation: the battery card's absent path is what the simulator shows.
+      battery: null,
+      processes: this.processes(),
     }
   }
+}
+
+/**
+ * A simulated week of per-minute history: office hours busy, nights idle, a render job
+ * on two evenings, and a system drive that loses a few gigabytes a day — so the chart
+ * and the forecast both have something to show in the browser.
+ */
+export function mockHistory(now: number): HistoryBucket[] {
+  const minute = 60_000
+  const end = Math.floor(now / minute) * minute
+  const start = end - 7 * 24 * 60 * minute
+  const buckets: HistoryBucket[] = []
+  const systemTotal = BASE_DRIVES[0].totalBytes
+  let seed = 7
+
+  // Deterministic noise, so the chart does not reshuffle on every reload.
+  const noise = () => {
+    seed = (seed * 16807) % 2147483647
+    return seed / 2147483647 - 0.5
+  }
+
+  for (let t = start; t < end; t += minute) {
+    const date = new Date(t)
+    const hour = date.getHours() + date.getMinutes() / 60
+    const weekday = date.getDay() !== 0 && date.getDay() !== 6
+    const office = weekday && hour >= 8.5 && hour < 18 ? 1 : 0
+    const render = date.getDate() % 3 === 0 && hour >= 20 && hour < 22 ? 1 : 0
+    const cpu = clamp(6 + office * 18 + render * 70 + noise() * 10, 1, 100)
+    const daysAgo = (end - t) / (24 * 60 * minute)
+
+    buckets.push({
+      t,
+      cpuAvg: cpu,
+      cpuMax: clamp(cpu + 12 + noise() * 16, cpu, 100),
+      memAvg: clamp(28 + office * 14 + render * 30 + noise() * 3, 5, 99),
+      gpuAvg: clamp(4 + office * 6 + render * 80 + noise() * 6, 0, 100),
+      cpuTempMax: clamp(40 + cpu * 0.5 + noise() * 4, 30, 100),
+      gpuTempMax: clamp(38 + render * 36 + noise() * 3, 30, 95),
+      netRxAvg: Math.max(0, 60_000 + office * 900_000 + noise() * 200_000),
+      netTxAvg: Math.max(0, 20_000 + office * 150_000 + noise() * 40_000),
+      systemFreeBytes: BASE_DRIVES[0].freeBytes + daysAgo * 3.2 * GIB + noise() * 0.3 * GIB,
+      systemTotalBytes: systemTotal,
+    })
+  }
+  return buckets
 }

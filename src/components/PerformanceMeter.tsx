@@ -3,13 +3,13 @@ import { Gauge } from 'lucide-react'
 import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from 'recharts'
 
 import { GRADE_META, loadColor } from '../lib/status'
-import type { PerformanceScore } from '../types/hardware'
-import { Card } from './ui/Card'
+import type { HardwareScore } from '../types/hardware'
 import { AnimatedNumber } from './ui/AnimatedNumber'
+import { Card } from './ui/Card'
 import { Meter } from './ui/Meter'
 
 interface PerformanceMeterProps {
-  score: PerformanceScore
+  score: HardwareScore
   className?: string
 }
 
@@ -18,9 +18,9 @@ const START_ANGLE = 215
 const END_ANGLE = -35
 
 /**
- * The dashboard's hero figure: one number for how well the machine is set up right
- * now, with the weighted inputs listed underneath so the score is auditable rather
- * than magic.
+ * The dashboard's hero figure: one number for what this machine can do, with the
+ * weighted inputs listed underneath so the score is auditable rather than magic. It
+ * does not move with load — that is the header's reserve ring.
  */
 export function PerformanceMeter({ score, className }: PerformanceMeterProps) {
   const meta = GRADE_META[score.grade]
@@ -30,11 +30,11 @@ export function PerformanceMeter({ score, className }: PerformanceMeterProps) {
   return (
     <Card
       title="HardwareFlow Score"
-      subtitle="Kapazität & aktuelle Reserve, gewichtet"
+      subtitle="Was diese Maschine kann — unabhängig von der Last"
       icon={Gauge}
       accent={meta.color}
-      // Quiet on purpose: the four hardware cards carry the neon accent, so the score
-      // panel stays the calm anchor instead of adding a fifth glow.
+      // Quiet on purpose: the hardware cards carry the neon accent, so the score panel
+      // stays the calm anchor instead of adding a fifth glow.
       emphasis="quiet"
       className={className}
       action={
@@ -72,10 +72,7 @@ export function PerformanceMeter({ score, className }: PerformanceMeterProps) {
 
         {/* Hero figure, centred in the arc. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pt-2">
-          <AnimatedNumber
-            value={score.total}
-            className="text-[52px] leading-none font-semibold text-ink"
-          />
+          <AnimatedNumber value={score.total} className="text-[52px] leading-none font-semibold text-ink" />
           <span className="mt-1.5 text-[11px] font-medium tracking-wide text-muted uppercase">von 100</span>
         </div>
 
@@ -92,12 +89,20 @@ export function PerformanceMeter({ score, className }: PerformanceMeterProps) {
         {score.components.map((component) => (
           <li key={component.key}>
             <div className="flex items-baseline justify-between gap-3">
-              <span className="truncate text-xs font-medium text-ink-2">{component.label}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-xs font-medium text-ink-2">{component.label}</span>
+                {component.estimated && (
+                  <span
+                    className="shrink-0 cursor-help rounded border border-hairline px-1 text-[10px] text-muted"
+                    title="Modell nicht in der Leistungstabelle — aus Threads, Takt bzw. VRAM geschätzt"
+                  >
+                    geschätzt
+                  </span>
+                )}
+              </span>
               <span className="shrink-0 text-xs font-semibold text-ink tabular-nums">
                 {Math.round(component.score)}
-                <span className="ml-1 font-normal text-muted">
-                  × {Math.round(component.weight * 100)} %
-                </span>
+                <span className="ml-1 font-normal text-muted">× {Math.round(component.weight * 100)} %</span>
               </span>
             </div>
             <Meter

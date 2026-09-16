@@ -12,34 +12,6 @@ export const STATUS_COLORS = {
   critical: '#d03b3b',
 } as const
 
-export const GRADE_META: Record<ScoreGrade, { label: string; color: string; summary: string }> = {
-  excellent: {
-    label: 'Ausgezeichnet',
-    color: STATUS_COLORS.good,
-    summary: 'Das System hat reichlich Reserven für anspruchsvolle Workloads.',
-  },
-  good: {
-    label: 'Gut',
-    color: STATUS_COLORS.good,
-    summary: 'Solide Leistung, alle Subsysteme im grünen Bereich.',
-  },
-  warning: {
-    label: 'Ausreichend',
-    color: STATUS_COLORS.warning,
-    summary: 'Grundsätzlich ausreichend, einzelne Komponenten bremsen.',
-  },
-  serious: {
-    label: 'Knapp',
-    color: STATUS_COLORS.serious,
-    summary: 'Die Reserven sind knapp — ein Upgrade würde sich lohnen.',
-  },
-  critical: {
-    label: 'Kritisch',
-    color: STATUS_COLORS.critical,
-    summary: 'Das System arbeitet am Limit und bremst laufende Aufgaben.',
-  },
-}
-
 /**
  * Severity of a utilisation reading. Thresholds are deliberately generous: an
  * 80 %-busy CPU is a machine doing its job, not a fault.
@@ -62,4 +34,36 @@ export function capacityStatus(usedPercent: number): keyof typeof STATUS_COLORS 
   if (usedPercent >= 88) return 'serious'
   if (usedPercent >= 75) return 'warning'
   return 'good'
+}
+
+/**
+ * Labels for the score bands. The colour says how comfortable the machine is for demanding
+ * work; the label carries the same message in words, so hue is never the only cue.
+ */
+export const GRADE_META: Record<ScoreGrade, { label: string; color: string; summary: string }> = {
+  'high-end': {
+    label: 'Oberklasse',
+    color: STATUS_COLORS.good,
+    summary: 'Aktuelle Spitzenhardware — Reserven für alles, was man ihr zumutet.',
+  },
+  strong: {
+    label: 'Leistungsstark',
+    color: STATUS_COLORS.good,
+    summary: 'Schnell genug für Spiele, Entwicklung und Medienbearbeitung.',
+  },
+  solid: {
+    label: 'Solide',
+    color: STATUS_COLORS.warning,
+    summary: 'Für den Alltag gut aufgestellt; bei großen Projekten wird es zäh.',
+  },
+  entry: {
+    label: 'Einstieg',
+    color: STATUS_COLORS.serious,
+    summary: 'Büro und Browser laufen, anspruchsvolle Aufgaben bremsen spürbar.',
+  },
+  dated: {
+    label: 'Veraltet',
+    color: STATUS_COLORS.critical,
+    summary: 'Die Hardware ist an ihrer Grenze — ein Upgrade würde viel bringen.',
+  },
 }

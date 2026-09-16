@@ -1,12 +1,14 @@
-import { Activity, Clock, FlaskConical, Monitor, Pause, Play, Radio, Server } from 'lucide-react'
+import { Clock, FlaskConical, Monitor, Pause, Play, Radio, Server } from 'lucide-react'
 
 import { formatUptime } from '../lib/format'
-import { GRADE_META, STATUS_COLORS } from '../lib/status'
-import type { HardwareSource, PerformanceScore, SystemInfo } from '../types/hardware'
+import { loadColor, STATUS_COLORS } from '../lib/status'
+import type { HardwareSource, Headroom, SystemInfo } from '../types/hardware'
 
 interface DashboardHeaderProps {
+  /** Name of the page on screen. */
+  title: string
   system: SystemInfo
-  score: PerformanceScore
+  headroom: Headroom
   source: HardwareSource
   paused: boolean
   onTogglePaused: () => void
@@ -37,54 +39,37 @@ function SourceBadge({ source, paused }: { source: HardwareSource; paused: boole
   )
 }
 
-/** Compact score ring for the header — deliberately small, so the gauge stays the hero. */
-function ScoreRing({ score }: { score: PerformanceScore }) {
-  const meta = GRADE_META[score.grade]
-  const radius = 15
+/**
+ * Live headroom as a compact ring: how much of the machine is free right now. It sits in
+ * the header on every page, apart from the score, because it answers a different
+ * question — the score is what the machine *is*, the ring is what it has *left*.
+ */
+export function HeadroomRing({ headroom, size = 38 }: { headroom: Headroom; size?: number }) {
+  const color = loadColor(100 - headroom.percent)
+  const stroke = size / 9.5
+  const radius = size / 2 - stroke / 2 - 0.5
   const circumference = 2 * Math.PI * radius
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-2.5">
-      <svg width="38" height="38" viewBox="0 0 38 38" aria-hidden className="-rotate-90">
-        <circle cx="19" cy="19" r={radius} fill="none" stroke={`${meta.color}2e`} strokeWidth="4" />
-        <circle
-          cx="19"
-          cy="19"
-          r={radius}
-          fill="none"
-          stroke={meta.color}
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference * (1 - score.total / 100)}
-          className="hf-score-ring"
-        />
-      </svg>
-      <div>
-        <p className="text-[11px] leading-4 font-medium tracking-wide text-muted uppercase">
-          HardwareFlow Score
-        </p>
-        <p className="text-sm leading-5 font-semibold text-ink tabular-nums">
-          {score.total}
-          <span className="text-muted"> / 100</span>
-          <span className="ml-2 font-medium" style={{ color: meta.color }}>
-            {meta.label}
-          </span>
-        </p>
-      </div>
-    </div>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="-rotate-90">
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={`${color}2e`} strokeWidth={stroke} />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={circumference * (1 - headroom.percent / 100)}
+        className="hf-score-ring"
+      />
+    </svg>
   )
 }
 
-function MetaItem({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Server
-  label: string
-  value: string
-}) {
+function MetaItem({ icon: Icon, label, value }: { icon: typeof Server; label: string; value: string }) {
   return (
     <div className="flex items-center gap-2">
       <Icon aria-hidden size={14} className="shrink-0 text-muted" strokeWidth={2} />
@@ -94,37 +79,18 @@ function MetaItem({
   )
 }
 
-export function DashboardHeader({
-  system,
-  score,
-  source,
-  paused,
-  onTogglePaused,
-}: DashboardHeaderProps) {
+export function DashboardHeader({ title, system, headroom, source, paused, onTogglePaused }: DashboardHeaderProps) {
   return (
     <header className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span
-            aria-hidden
-            className="grid size-8 place-items-center rounded-lg bg-cpu/15 text-cpu ring-1 ring-cpu/25"
-          >
-            <Activity size={17} strokeWidth={2.25} />
-          </span>
-          <div className="flex items-baseline gap-2">
-            <h1 className="text-lg leading-6 font-semibold tracking-tight text-ink">HardwareFlow</h1>
-            <span className="text-xs text-muted">System Monitor</span>
-          </div>
+          <h1 className="text-xl leading-7 font-semibold tracking-tight text-ink">{title}</h1>
           <SourceBadge source={source} paused={paused} />
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+        <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
           <MetaItem icon={Server} label="Host" value={system.hostname} />
-          <MetaItem
-            icon={Monitor}
-            label="OS"
-            value={`${system.osName} ${system.osVersion} · ${system.architecture}`}
-          />
+          <MetaItem icon={Monitor} label="OS" value={`${system.osName} ${system.osVersion} · ${system.architecture}`} />
           <MetaItem icon={Clock} label="Uptime" value={formatUptime(system.uptimeSeconds)} />
         </div>
       </div>
@@ -139,7 +105,19 @@ export function DashboardHeader({
           {paused ? <Play aria-hidden size={13} /> : <Pause aria-hidden size={13} />}
           {paused ? 'Fortsetzen' : 'Pausieren'}
         </button>
-        <ScoreRing score={score} />
+
+        <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-2.5">
+          <HeadroomRing headroom={headroom} />
+          <div>
+            <p className="text-[11px] leading-4 font-medium tracking-wide text-muted uppercase">Reserve</p>
+            <p
+              className="text-sm leading-5 font-semibold text-ink tabular-nums"
+              title={`Frei im Schnitt der letzten ${headroom.windowSeconds} s: 100 − Last von CPU, RAM${headroom.gpuPercent === null ? '' : ' und GPU'}, gewichtet`}
+            >
+              {Math.round(headroom.percent)} %<span className="font-normal text-muted"> frei</span>
+            </p>
+          </div>
+        </div>
       </div>
     </header>
   )

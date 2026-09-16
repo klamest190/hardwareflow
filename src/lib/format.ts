@@ -82,3 +82,35 @@ export function formatThroughput(mbPerSecond: number | null): string {
   if (mbPerSecond >= 1000) return `${(mbPerSecond / 1000).toFixed(1)} GB/s`
   return `${Math.round(mbPerSecond)} MB/s`
 }
+
+/**
+ * Network rate in bits per second — the unit providers and link speeds use, so a
+ * reading can be held against "250 Mbit/s" on the contract without converting.
+ */
+export function formatBitrate(bytesPerSecond: number | null): string {
+  if (bytesPerSecond === null || !Number.isFinite(bytesPerSecond)) return '—'
+  const bits = Math.max(bytesPerSecond, 0) * 8
+  if (bits >= 1e9) return `${(bits / 1e9).toFixed(2)} Gbit/s`
+  if (bits >= 1e6) return `${(bits / 1e6).toFixed(bits >= 1e8 ? 0 : 1)} Mbit/s`
+  if (bits >= 1e3) return `${Math.round(bits / 1e3)} kbit/s`
+  return `${Math.round(bits)} bit/s`
+}
+
+/** Link speed: `2,5 Gbit/s`, `841 Mbit/s`. */
+export function formatLinkSpeed(mbps: number | null): string {
+  if (mbps === null) return '—'
+  return mbps >= 1000 ? `${(mbps / 1000).toString()} Gbit/s` : `${Math.round(mbps)} Mbit/s`
+}
+
+/** `2 h 05 min`, `47 min`. */
+export function formatMinutes(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes))
+  const hours = Math.floor(total / 60)
+  const rest = total % 60
+  return hours > 0 ? `${hours} h ${String(rest).padStart(2, '0')} min` : `${rest} min`
+}
+
+/** Thousands with a narrow gap, German style: `5 930`. */
+export function formatPoints(points: number): string {
+  return Math.round(points).toLocaleString('de-DE').replace(/\./g, '\u202f')
+}

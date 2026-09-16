@@ -122,3 +122,18 @@
     radial-gradient(circle at 78% 88%, rgba(201, 133, 0, 0.07), transparent 45%);
   background-attachment: fixed;
 }
+
+/* Mini window: frameless, so the surface itself moves the window. Buttons opt out, or
+   Windows would swallow their clicks as the start of a drag. */
+.hf-drag {
+  -webkit-app-region: drag;
+}
+
+.hf-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.hf-mini,
+.hf-mini body {
+  overflow: hidden;
+}
