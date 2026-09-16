@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { DesktopSettings } from '../src/types/bridge'
-import type { HardwareReading, HistoryBucket } from '../src/types/hardware'
+import type { DesktopSettings, KillResult } from '../src/types/bridge'
+import type { HardwareReading, HistoryBucket, LoggedAlert } from '../src/types/hardware'
 
 /**
  * The entire surface the renderer gets. No `require`, no filesystem, no direct
@@ -27,6 +27,13 @@ contextBridge.exposeInMainWorld('hardwareflow', {
   },
 
   getHistory: (): Promise<HistoryBucket[]> => ipcRenderer.invoke('history:get'),
+
+  getAlertLog: (): Promise<LoggedAlert[]> => ipcRenderer.invoke('history:alerts'),
+
+  killProcesses: (name: string, pids: number[]): Promise<KillResult> =>
+    ipcRenderer.invoke('process:kill', name, pids),
+
+  showInFolder: (path: string): Promise<void> => ipcRenderer.invoke('process:showInFolder', path),
 
   getSettings: (): Promise<DesktopSettings> => ipcRenderer.invoke('settings:get'),
 

@@ -5,8 +5,9 @@ import type {
   HardwareSource,
   HistoryBucket,
   LoadSample,
+  LoggedAlert,
 } from '../types/hardware'
-import { MockHardwareSource, mockHistory } from './mockHardware'
+import { MockHardwareSource, mockAlertLog, mockHistory } from './mockHardware'
 
 /**
  * The one API the UI talks to.
@@ -134,4 +135,10 @@ export function getMockSnapshot(): HardwareSnapshot {
 export async function loadHistory(): Promise<HistoryBucket[]> {
   if (isNativeAvailable()) return window.hardwareflow!.getHistory()
   return mockHistory(Date.now())
+}
+
+/** Alerts raised in the last week — logged by the main process, simulated in the browser. */
+export async function loadAlertLog(): Promise<LoggedAlert[]> {
+  if (isNativeAvailable()) return window.hardwareflow!.getAlertLog()
+  return mockAlertLog(Date.now())
 }

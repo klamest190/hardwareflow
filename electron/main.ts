@@ -9,6 +9,7 @@ import {
   shell,
   Tray,
 } from 'electron'
+import os from 'node:os'
 import path from 'node:path'
 
 import { AlertEngine } from '../src/lib/alerts'
@@ -16,7 +17,9 @@ import type { DesktopSettings } from '../src/types/bridge'
 import type { HardwareAlert, HardwareReading } from '../src/types/hardware'
 import { HardwareProbe } from './hardwareProbe'
 import { HistoryStore } from './historyStore'
+import { isShowablePath, killProcesses } from './processControl'
 import { applySettings, currentSettings, HIDDEN_ARG, storedSettings, storeSettings } from './settings'
+import { renderTrayIcon, TRAY_ICON_SIZE } from './trayIcon'
 import { loadWindowState, saveWindowState, settledSize } from './windowState'
 
 /**
@@ -43,6 +46,11 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
 const SELFTEST = Boolean(process.env.HARDWAREFLOW_SELFTEST)
 
+// The self-test gets a throwaway profile: it must neither collide with an instance the
+// user has running (the single-instance lock is per profile) nor write test minutes into
+// their history, settings and remembered page.
+if (SELFTEST) app.setPath('userData', path.join(os.tmpdir(), 'hardwareflow-selftest'))
+
 /** Same notification twice within this window is noise, not information. */
 const NOTIFICATION_COOLDOWN_MS = 30 * 60_000
 /** The tray tooltip does not need to be rewritten every second. */
@@ -56,6 +64,7 @@ let miniWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let probe: HardwareProbe | null = null
 const history = new HistoryStore()
+// Thresholds are applied once settings are readable, in `whenReady`.
 const alerts = new AlertEngine()
 const lastNotified = new Map<string, number>()
 let lastTooltipAt = 0
@@ -130,7 +139,7 @@ function createMainWindow(show: boolean) {
 
     event.preventDefault()
     target.hide()
-    if (!storedSettings().trayHintShown) {
+    if (!storedSettings().trayHintShown && !SELFTEST) {
       storeSettings({ trayHintShown: true })
       notify(
         'HardwareFlow läuft weiter',
@@ -249,6 +258,7 @@ function buildTrayMenu() {
 }
 
 function createTray() {
+  // The app icon until the first reading replaces it with the live gauge.
   const image = nativeImage.createFromPath(ICON_PATH).resize({ width: 16, height: 16 })
   tray = new Tray(image)
   tray.setToolTip('HardwareFlow')
@@ -256,13 +266,22 @@ function createTray() {
   buildTrayMenu()
 }
 
-function updateTrayTooltip(reading: HardwareReading) {
+/** Tooltip and the live gauge icon, on the same five-second beat. */
+function updateTray(reading: HardwareReading) {
   const now = Date.now()
   if (!tray || now - lastTooltipAt < TOOLTIP_INTERVAL_MS) return
   lastTooltipAt = now
   const memory =
     reading.memory.totalBytes > 0 ? (reading.memory.usedBytes / reading.memory.totalBytes) * 100 : 0
   const gpu = reading.gpus[0]?.usagePercent
+
+  tray.setImage(
+    nativeImage.createFromBitmap(renderTrayIcon(reading.cpuLoad.usagePercent, memory), {
+      width: TRAY_ICON_SIZE,
+      height: TRAY_ICON_SIZE,
+      scaleFactor: 2,
+    }),
+  )
   tray.setToolTip(
     [
       'HardwareFlow',
@@ -303,8 +322,10 @@ async function startProbe() {
     readingsTaken += 1
     broadcast('hardware:reading', reading)
     history.record(reading)
-    notifyAlerts(alerts.update(reading).fired)
-    updateTrayTooltip(reading)
+    const { fired } = alerts.update(reading)
+    history.logAlerts(fired)
+    notifyAlerts(fired)
+    updateTray(reading)
   })
 }
 
@@ -322,10 +343,24 @@ ipcMain.handle('hardware:setPaused', (_event, paused: boolean) => {
 
 ipcMain.handle('history:get', () => history.all())
 
+ipcMain.handle('history:alerts', () => history.alertLog())
+
+ipcMain.handle('process:kill', (_event, name: unknown, pids: unknown) => {
+  if (typeof name !== 'string' || !Array.isArray(pids)) {
+    return { ended: 0, failed: [], refused: 'Ungültige Anfrage.' }
+  }
+  return killProcesses(name, pids.filter((pid): pid is number => typeof pid === 'number'))
+})
+
+ipcMain.handle('process:showInFolder', (_event, target: unknown) => {
+  if (typeof target === 'string' && isShowablePath(target)) shell.showItemInFolder(target)
+})
+
 ipcMain.handle('settings:get', () => currentSettings())
 
 ipcMain.handle('settings:update', (_event, patch: Partial<DesktopSettings>) => {
   const next = applySettings(patch)
+  alerts.setThresholds(next.thresholds)
   buildTrayMenu()
   return next
 })
@@ -413,12 +448,16 @@ async function runSelfTest() {
   if (stillPaused !== whilePaused) {
     problems.push(`Pause stoppt die Messung nicht — ${stillPaused - whilePaused} Messungen in 3 s`)
   }
+  if (probe?.countersRunning) problems.push('Pause beendet den PowerShell-Prozess für die Leistungsindikatoren nicht')
 
   await clickButton('Fortsetzen')
   await waitFor(() => buttonShows('Pausieren'))
   await waitFor(async () => readingsTaken > stillPaused)
   console.log(`[selftest] Messungen fortgesetzt: ${stillPaused} → ${readingsTaken}`)
   if (readingsTaken <= stillPaused) problems.push('Fortsetzen startet die Messung nicht')
+  if (process.platform === 'win32' && !(await waitFor(async () => probe?.countersRunning === true))) {
+    problems.push('Fortsetzen startet den PowerShell-Prozess für die Leistungsindikatoren nicht')
+  }
 
   // Optional: jede Seite als PNG, um das Layout anzusehen statt nur den Text zu prüfen.
   // HARDWAREFLOW_SCREENSHOTS=<Ordner> npm run selftest:app
@@ -448,7 +487,7 @@ async function runSelfTest() {
     { nav: 'Netzwerk', expect: ['Empfang', 'Senden'] },
     { nav: 'Prozesse', expect: ['nach Programm gruppiert'] },
     // Nur auf Rechnern mit Akku in der Navigation.
-    { nav: 'Akku', expect: ['Nennkapazität'], optional: true },
+    { nav: 'Akku', expect: ['Zustand', 'Zyklen'], optional: true },
     { nav: 'Verlauf', expect: ['Minutenwerte'] },
     { nav: 'Einstellungen', expect: ['Mit Windows starten'] },
   ]
@@ -495,7 +534,52 @@ async function runSelfTest() {
     await screenshot(miniWindow, 'mini')
   }
 
+  // Leistungsindikatoren: Der PowerShell-Leser muss Disk-I/O fürs Systemlaufwerk und eine
+  // GPU-Auslastung für jeden Adapter liefern. Die erste WMI-Abfrage einer frischen Sitzung
+  // ist langsam, daher bis zu einer Minute.
+  if (process.platform === 'win32') {
+    const countersComplete = () => {
+      const reading = probe?.reading()
+      const systemDrive = reading?.drives.find((drive) => drive.system)
+      return Boolean(systemDrive && systemDrive.readMbPerSec !== null && reading?.gpus.every((gpu) => gpu.usagePercent !== null))
+    }
+    const countersArrived = await waitFor(async () => countersComplete(), 60_000)
+    const reading = probe?.reading()
+    const systemRead = reading?.drives.find((drive) => drive.system)?.readMbPerSec
+    const gpuLoads = reading?.gpus.map((gpu) => `${gpu.model} ${gpu.usagePercent ?? 'n/v'} %`).join(', ')
+    console.log(`[selftest] Leistungsindikatoren: C: ${systemRead?.toFixed(2) ?? 'n/v'} MB/s lesen · ${gpuLoads}`)
+    if (!countersArrived) {
+      problems.push('Leistungsindikatoren liefern nach 60 s nicht Disk-I/O und GPU-Auslastung für alle Adapter')
+    }
+  }
+
+  // Desktop-Verhalten: Tray vorhanden, Schließen versteckt nur (wenn so eingestellt).
+  if (!tray) problems.push('Kein Tray-Symbol')
+  if (tray && storedSettings().closeToTray) {
+    target.close()
+    await wait(500)
+    if (target.isDestroyed()) problems.push('Schließen beendet das Fenster, statt es in den Tray zu legen')
+    else if (target.isVisible()) problems.push('Fenster bleibt nach dem Schließen sichtbar')
+    else console.log('[selftest] Schließen legt das Fenster in den Tray: ok')
+    showDashboard()
+  }
+
+  // Nur in der installierten App: Autostart setzen, zurücklesen, alten Zustand herstellen.
+  if (process.env.HARDWAREFLOW_EXPECT_PACKAGED) {
+    if (!app.isPackaged) problems.push('Erwartet installierte App, läuft aber unpaketiert')
+    const before = currentSettings().autostart
+    applySettings({ autostart: !before })
+    const toggled = currentSettings().autostart
+    applySettings({ autostart: before })
+    const restored = currentSettings().autostart
+    console.log(`[selftest] Autostart: ${before} → ${toggled} → ${restored}`)
+    if (toggled === before || restored !== before) problems.push('Autostart lässt sich nicht schalten')
+  }
+
   for (const message of consoleErrors) problems.push(`Renderer-Konsole — ${message}`)
+
+  // Ein Tray-Symbol überlebt sonst den Prozess, bis jemand mit der Maus darüberfährt.
+  tray?.destroy()
 
   if (problems.length === 0) {
     console.log('[selftest] OK — alle Seiten und die Mini-Ansicht zeigen Live-Messwerte, Konsole sauber')
@@ -510,7 +594,13 @@ async function runSelfTest() {
 
 // One instance is the whole app; a second launch should just bring the first forward.
 if (!app.requestSingleInstanceLock()) {
-  app.quit()
+  // Silently quitting would let a self-test pass without having run.
+  if (SELFTEST) {
+    console.error('[selftest] FEHLER: Einzelinstanz-Sperre nicht erhalten')
+    app.exit(1)
+  } else {
+    app.quit()
+  }
 } else {
   // Without it, Windows attributes notifications to "electron.app.HardwareFlow".
   app.setAppUserModelId('com.hardwareflow.desktop')
@@ -519,8 +609,8 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     history.load()
-    // The self-test must not leave a tray icon or a hidden window behind.
-    if (!SELFTEST) createTray()
+    alerts.setThresholds(storedSettings().thresholds)
+    createTray()
     createMainWindow(!process.argv.includes(HIDDEN_ARG))
     await startProbe()
 

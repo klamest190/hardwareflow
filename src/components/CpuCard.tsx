@@ -1,4 +1,4 @@
-import { Cpu } from 'lucide-react'
+import { Cpu, Thermometer } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -12,7 +12,7 @@ import type { TooltipContentProps } from 'recharts'
 
 import { describeDevice, formatClockTime, formatPercent } from '../lib/format'
 import { loadColor } from '../lib/status'
-import type { CpuInfo, CpuLoad, LoadSample } from '../types/hardware'
+import type { CpuInfo, CpuLoad, FanReading, LoadSample } from '../types/hardware'
 import { Card } from './ui/Card'
 import { AnimatedNumber } from './ui/AnimatedNumber'
 import { NotAvailable } from './ui/NotAvailable'
@@ -26,7 +26,43 @@ interface CpuCardProps {
   cpu: CpuInfo
   load: CpuLoad
   history: LoadSample[]
+  /** Fans from the sensor provider; empty without one. */
+  fans?: FanReading[]
+  /** e.g. `LibreHardwareMonitor`; `null` when no sensor tool is running. */
+  sensorProvider?: string | null
   className?: string
+}
+
+/** Where the temperature, power and fan readings come from, or how to get them. */
+const SENSOR_HINT =
+  'Windows meldet ohne Zusatztreiber keine CPU-Temperatur. Läuft LibreHardwareMonitor (als Administrator gestartet), liest HardwareFlow Temperatur, Leistung und Lüfter automatisch über dessen WMI-Schnittstelle.'
+
+function SensorRow({ load, fans, provider }: { load: CpuLoad; fans: FanReading[]; provider: string | null }) {
+  if (!provider) {
+    return (
+      <p className="mt-4 flex items-center gap-2 text-[11px] leading-4 text-muted">
+        <Thermometer aria-hidden size={13} className="shrink-0" />
+        <span>
+          Temperatur, Leistung und Lüfter: <NotAvailable reason={SENSOR_HINT} />
+          <span className="ml-1">— mit laufendem LibreHardwareMonitor verfügbar</span>
+        </span>
+      </p>
+    )
+  }
+
+  const parts = [
+    load.temperatureC !== null ? `${Math.round(load.temperatureC)} °C` : null,
+    load.powerWatts !== null ? `${Math.round(load.powerWatts)} W` : null,
+    ...fans.map((fan) => `${fan.name} ${fan.rpm.toLocaleString('de-DE')} U/min`),
+  ].filter(Boolean)
+
+  return (
+    <p className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] leading-4 text-ink-2 tabular-nums">
+      <Thermometer aria-hidden size={13} className="shrink-0 text-muted" />
+      <span>{parts.length > 0 ? parts.join(' · ') : 'Keine CPU-Sensoren gemeldet'}</span>
+      <span className="text-muted">via {provider}</span>
+    </p>
+  )
 }
 
 /** Short `mm:ss` axis label — the window is 60 s, so the hour is noise. */
@@ -54,7 +90,7 @@ function CpuTooltip({ active, payload }: TooltipContentProps) {
  * the middle, per-thread distribution at the bottom. The curve is a single series,
  * so it carries no legend — the card title names it.
  */
-export function CpuCard({ cpu, load, history, className }: CpuCardProps) {
+export function CpuCard({ cpu, load, history, fans = [], sensorProvider = null, className }: CpuCardProps) {
   return (
     <Card
       title="Prozessor"
@@ -90,6 +126,8 @@ export function CpuCard({ cpu, load, history, className }: CpuCardProps) {
           hint={cpu.cacheL3Mb === null ? undefined : 'MB'}
         />
       </StatGrid>
+
+      <SensorRow load={load} fans={fans} provider={sensorProvider} />
 
       {/* The chart takes whatever height the card has left. In the 12-column grid this
           card sits beside the taller score panel, so without this the surplus became a

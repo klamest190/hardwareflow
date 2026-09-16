@@ -4,6 +4,7 @@ import type {
   GpuInfo,
   HardwareReading,
   HistoryBucket,
+  LoggedAlert,
   MemoryInfo,
   NetworkInfo,
   PhysicalDisk,
@@ -210,15 +211,30 @@ const BASE_NETWORK: NetworkInfo = {
   wifiGeneration: 'Wi-Fi 7',
 }
 
+let nextPid = 4000
+
+/** A simulated program: `instances` processes with made-up PIDs, installed at `path`. */
+function program(
+  name: string,
+  instances: number,
+  path: string | null,
+  cpuPercent: number,
+  memoryGib: number,
+): ProcessGroup {
+  const pids = Array.from({ length: instances }, () => nextPid++)
+  return { name, instances, pids, path, cpuPercent, memoryBytes: memoryGib * GIB }
+}
+
 /** Programs of a typical workstation day, with their resting footprint. */
 const BASE_PROCESSES: ProcessGroup[] = [
-  { name: 'chrome.exe', instances: 38, cpuPercent: 2.1, memoryBytes: 4.2 * GIB },
-  { name: 'Code.exe', instances: 14, cpuPercent: 1.4, memoryBytes: 2.1 * GIB },
-  { name: 'blender.exe', instances: 1, cpuPercent: 0.4, memoryBytes: 3.6 * GIB },
-  { name: 'docker-desktop.exe', instances: 6, cpuPercent: 0.8, memoryBytes: 1.9 * GIB },
-  { name: 'Discord.exe', instances: 7, cpuPercent: 0.3, memoryBytes: 0.9 * GIB },
-  { name: 'explorer.exe', instances: 1, cpuPercent: 0.2, memoryBytes: 0.2 * GIB },
-  { name: 'MsMpEng.exe', instances: 1, cpuPercent: 0.6, memoryBytes: 0.4 * GIB },
+  program('chrome.exe', 38, 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', 2.1, 4.2),
+  program('Code.exe', 14, 'C:\\Program Files\\Microsoft VS Code\\Code.exe', 1.4, 2.1),
+  program('blender.exe', 1, 'C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe', 0.4, 3.6),
+  program('docker-desktop.exe', 6, 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe', 0.8, 1.9),
+  program('Discord.exe', 7, 'C:\\Users\\atlas\\AppData\\Local\\Discord\\app-1.0.9\\Discord.exe', 0.3, 0.9),
+  program('explorer.exe', 1, 'C:\\Windows\\explorer.exe', 0.2, 0.2),
+  // Windows withholds the path of protected processes — the simulator keeps that gap.
+  program('MsMpEng.exe', 1, null, 0.6, 0.4),
 ]
 
 /**
@@ -372,6 +388,7 @@ export class MockHardwareSource {
         BASE_CPU.baseClockGhz +
         (BASE_CPU.maxClockGhz - BASE_CPU.baseClockGhz) * (this.cpuUsage / 100) * 0.9,
       temperatureC: this.cpuTemp,
+      powerWatts: Math.round(38 + this.cpuUsage * 1.1),
       perCore: this.perCoreLoad(),
       processCount: 248 + Math.round(this.cpuUsage * 0.8),
     }
@@ -397,6 +414,13 @@ export class MockHardwareSource {
       // A desktop workstation: the battery card's absent path is what the simulator shows.
       battery: null,
       processes: this.processes(),
+      // The simulator stands in for a machine running LibreHardwareMonitor, so the sensor
+      // rows have something to show in the browser.
+      fans: [
+        { name: 'CPU-Lüfter', rpm: Math.round(900 + this.cpuUsage * 14) },
+        { name: 'Gehäuse', rpm: Math.round(700 + this.cpuUsage * 6) },
+      ],
+      sensorProvider: 'LibreHardwareMonitor',
     }
   }
 }
@@ -444,4 +468,25 @@ export function mockHistory(now: number): HistoryBucket[] {
     })
   }
   return buckets
+}
+
+/** Two episodes from the simulated week, so the history page shows its markers and list. */
+export function mockAlertLog(now: number): LoggedAlert[] {
+  const hour = 60 * 60_000
+  return [
+    {
+      t: now - 3 * 24 * hour - 2 * hour,
+      key: 'gpu-temp',
+      title: 'GPU sehr heiß',
+      message: '88 °C seit über 30 Sekunden.',
+      severity: 'warning',
+    },
+    {
+      t: now - 5 * hour,
+      key: 'memory',
+      title: 'Arbeitsspeicher voll',
+      message: '96 % belegt seit über einer Minute — Windows lagert aus, alles wird langsam.',
+      severity: 'warning',
+    },
+  ]
 }

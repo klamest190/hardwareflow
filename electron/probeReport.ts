@@ -42,6 +42,8 @@ function anonymize(value: unknown, key = ''): unknown {
   if (typeof value === 'string' && value !== '' && IDENTIFYING.has(key)) {
     return key === 'hostname' ? 'FIXTURE-HOST' : key.startsWith('ip4') ? '192.0.2.10' : 'anonym'
   }
+  // Prozesspfade tragen den Windows-Benutzernamen: C:\Users\<name>\AppData\…
+  if (typeof value === 'string') return value.replace(/([\\/]Users[\\/])[^\\/]+/gi, '$1anonym')
   return value
 }
 
@@ -55,6 +57,10 @@ async function main() {
 
   const started = Date.now()
   await probe.warmUp()
+  // Leistungsindikatoren kommen aus einem eigenen PowerShell-Prozess; zwei Proben, damit
+  // die Raten schon echte Differenzen sind.
+  await probe.waitForCounters(30_000)
+  await new Promise((resolve) => setTimeout(resolve, 2_500))
   const reading = probe.reading()
   probe.stop()
 

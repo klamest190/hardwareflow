@@ -2,7 +2,9 @@ import { app } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { DEFAULT_ALERT_THRESHOLDS, sanitizeThresholds } from '../src/lib/alerts'
 import type { DesktopSettings } from '../src/types/bridge'
+import type { AlertThresholds } from '../src/types/hardware'
 
 /**
  * Desktop settings. Autostart is not stored here: Windows keeps the login item itself,
@@ -15,9 +17,15 @@ interface StoredSettings {
   closeToTray: boolean
   /** Set once the "still running in the tray" hint has been shown. */
   trayHintShown: boolean
+  thresholds: AlertThresholds
 }
 
-const DEFAULTS: StoredSettings = { notifications: true, closeToTray: true, trayHintShown: false }
+const DEFAULTS: StoredSettings = {
+  notifications: true,
+  closeToTray: true,
+  trayHintShown: false,
+  thresholds: DEFAULT_ALERT_THRESHOLDS,
+}
 
 /** Started by the login item — open straight into the tray. */
 export const HIDDEN_ARG = '--hidden'
@@ -34,6 +42,8 @@ export function storedSettings(): StoredSettings {
       notifications: typeof saved.notifications === 'boolean' ? saved.notifications : DEFAULTS.notifications,
       closeToTray: typeof saved.closeToTray === 'boolean' ? saved.closeToTray : DEFAULTS.closeToTray,
       trayHintShown: saved.trayHintShown === true,
+      // A hand-edited file must not be able to switch a warning off by accident.
+      thresholds: sanitizeThresholds(saved.thresholds),
     }
   } catch {
     cached = { ...DEFAULTS }
@@ -67,6 +77,8 @@ export function currentSettings(): DesktopSettings {
     autostartAvailable: autostartAvailable(),
     notifications: stored.notifications,
     closeToTray: stored.closeToTray,
+    thresholds: stored.thresholds,
+    version: app.getVersion(),
   }
 }
 
@@ -77,6 +89,9 @@ export function applySettings(patch: Partial<DesktopSettings>): DesktopSettings 
   const stored: Partial<StoredSettings> = {}
   if (typeof patch.notifications === 'boolean') stored.notifications = patch.notifications
   if (typeof patch.closeToTray === 'boolean') stored.closeToTray = patch.closeToTray
+  if (patch.thresholds !== undefined) {
+    stored.thresholds = sanitizeThresholds({ ...storedSettings().thresholds, ...patch.thresholds })
+  }
   if (Object.keys(stored).length > 0) storeSettings(stored)
   return currentSettings()
 }

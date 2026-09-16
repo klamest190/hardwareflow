@@ -3,6 +3,7 @@ import type si from 'systeminformation'
 import type {
   BatteryInfo,
   CpuInfo,
+  FanReading,
   CpuLoad,
   DriveKind,
   GpuInfo,
@@ -56,6 +57,32 @@ export interface RawProbeState {
   processes: ProcessSummary | null
   /** Highest CPU clock seen so far, see `CpuInfo.maxClockGhz`. */
   observedMaxGhz: number
+  /** Latest line from the performance-counter reader; `null` before the first or off Windows. */
+  counters: CounterSample | null
+}
+
+/**
+ * One line from `counterReader.ts`, as PowerShell writes it. Instance names and values
+ * are passed through raw so the interpretation below can be tested.
+ */
+export interface CounterSample {
+  /** DXGI adapters: LUID as it appears in GPU-engine instance names, e.g. `0x00000000_0x00016f2e`. */
+  adapters: Array<{ luid: string; name: string; vendorId: number }>
+  /** Physical disks: instance name (`0 C:`), read and write bytes per second. */
+  disks: Array<{ n: string; r: number; w: number }>
+  /** GPU engines with load: instance name and utilisation percent. */
+  engines: Array<{ n: string; u: number }>
+  /** `LibreHardwareMonitor` or `OpenHardwareMonitor` when one is running. */
+  provider: string | null
+  /** Sensors of that provider: identifier, name, type, value. */
+  sensors: Array<{ i: string; n: string; t: string; v: number }>
+}
+
+/** Shape check for data crossing the process boundary. */
+export function isCounterSample(value: unknown): value is CounterSample {
+  if (value === null || typeof value !== 'object') return false
+  const sample = value as Record<string, unknown>
+  return Array.isArray(sample.adapters) && Array.isArray(sample.disks) && Array.isArray(sample.engines)
 }
 
 export function emptyRawState(): RawProbeState {
@@ -80,6 +107,7 @@ export function emptyRawState(): RawProbeState {
     battery: null,
     processes: null,
     observedMaxGhz: 0,
+    counters: null,
   }
 }
 
@@ -166,14 +194,46 @@ function buildCpu(raw: RawProbeState): CpuInfo {
   }
 }
 
+const CPU_SENSOR = /^\/(?:intelcpu|amdcpu|cpu)\//i
+
+/** Sensors of one type that belong to the CPU. */
+function cpuSensors(raw: RawProbeState, type: string) {
+  return (raw.counters?.sensors ?? []).filter(
+    (sensor) => sensor.t === type && CPU_SENSOR.test(sensor.i) && Number.isFinite(sensor.v) && sensor.v > 0,
+  )
+}
+
+/**
+ * The CPU temperature a sensor tool reports: the package sensor when there is one
+ * (Intel "CPU Package", AMD "Core (Tctl/Tdie)"), the hottest core otherwise.
+ */
+export function sensorCpuTemperature(raw: RawProbeState): number | null {
+  const temperatures = cpuSensors(raw, 'Temperature').filter((sensor) => sensor.v < 150)
+  const packageSensor = temperatures.find((sensor) => /package|tctl|tdie/i.test(sensor.n))
+  if (packageSensor) return packageSensor.v
+  return temperatures.length > 0 ? Math.max(...temperatures.map((sensor) => sensor.v)) : null
+}
+
+function sensorCpuPower(raw: RawProbeState): number | null {
+  const power = cpuSensors(raw, 'Power')
+  return (power.find((sensor) => /package/i.test(sensor.n)) ?? power[0])?.v ?? null
+}
+
+export function sensorFans(raw: RawProbeState): FanReading[] {
+  return (raw.counters?.sensors ?? [])
+    .filter((sensor) => sensor.t === 'Fan' && Number.isFinite(sensor.v) && sensor.v > 0)
+    .map((sensor) => ({ name: sensor.n, rpm: Math.round(sensor.v) }))
+}
+
 function buildCpuLoad(raw: RawProbeState, threads: number): CpuLoad {
   const perCore = (raw.load?.cpus ?? []).map((core) => core.load).slice(0, threads)
 
   return {
     usagePercent: Math.min(100, Math.max(0, raw.load?.currentLoad ?? 0)),
     currentClockGhz: positive(raw.speed?.avg),
-    // `null` on Windows without a helper driver — the normal case.
-    temperatureC: positive(raw.temperature?.main),
+    // Windows reports none of its own; a running LibreHardwareMonitor does.
+    temperatureC: sensorCpuTemperature(raw) ?? positive(raw.temperature?.main),
+    powerWatts: sensorCpuPower(raw),
     perCore,
     processCount: raw.processes?.count ?? null,
   }
@@ -202,7 +262,49 @@ function buildMemory(raw: RawProbeState): MemoryInfo {
   }
 }
 
+/** Device names as DXGI and WMI spell them, without marks and case. */
+const adapterKey = (name: string) =>
+  name
+    .replace(/\((?:r|tm|c)\)|[®™©]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+
+const ENGINE_INSTANCE = /luid_(0x[0-9a-f]+_0x[0-9a-f]+)_phys_\d+_eng_\d+_engtype_(.*)$/i
+
+/**
+ * Utilisation per adapter name, the way Task Manager computes it: engine instances are
+ * per process, so they are summed per engine type, and the busiest engine type is the
+ * adapter's load. An adapter DXGI lists but with no busy engine is idle — 0, not unknown.
+ */
+export function gpuUtilisationByAdapter(counters: CounterSample | null): Map<string, number> {
+  const result = new Map<string, number>()
+  if (!counters) return result
+
+  const perEngine = new Map<string, number>()
+  for (const engine of counters.engines) {
+    const match = ENGINE_INSTANCE.exec(engine.n)
+    if (!match || !Number.isFinite(engine.u)) continue
+    const key = `${match[1].toLowerCase()}|${match[2]}`
+    perEngine.set(key, (perEngine.get(key) ?? 0) + Math.max(engine.u, 0))
+  }
+
+  for (const adapter of counters.adapters) {
+    // DXGI's software rasteriser is not a device anyone asked about.
+    if (/basic render driver/i.test(adapter.name)) continue
+    const luid = adapter.luid.toLowerCase()
+    let busiest = 0
+    for (const [key, value] of perEngine) {
+      if (key.startsWith(`${luid}|`)) busiest = Math.max(busiest, value)
+    }
+    result.set(adapterKey(adapter.name), Math.min(busiest, 100))
+  }
+  return result
+}
+
 function buildGpus(raw: RawProbeState): GpuInfo[] {
+  const counterLoad = gpuUtilisationByAdapter(raw.counters)
+
   return (raw.graphics?.controllers ?? [])
     .map((controller, index): GpuInfo => {
       const totalMb = positive(controller.memoryTotal) ?? positive(controller.vram)
@@ -217,10 +319,12 @@ function buildGpus(raw: RawProbeState): GpuInfo[] {
         integrated: controller.vramDynamic === true,
         vramTotalBytes: totalMb === null ? null : Math.round(totalMb * BYTES_PER_MB),
         vramUsedBytes: usedMb === null ? null : Math.round(usedMb * BYTES_PER_MB),
+        // nvidia-smi where the driver offers it, the Windows engine counters otherwise —
+        // the only source for Intel and AMD graphics, and for an NVIDIA GPU asleep.
         usagePercent:
           typeof controller.utilizationGpu === 'number' && controller.utilizationGpu >= 0
             ? controller.utilizationGpu
-            : null,
+            : (counterLoad.get(adapterKey(controller.model ?? '')) ?? null),
         temperatureC: positive(controller.temperatureGpu),
         coreClockMhz: positive(controller.clockCore),
         powerDrawWatts: positive(controller.powerDraw),
@@ -234,7 +338,25 @@ function buildGpus(raw: RawProbeState): GpuInfo[] {
  * and the `\\.\PHYSICALDRIVEn` path that joins it to `diskLayout` for its NVMe/SSD/HDD
  * type.
  */
+/**
+ * Read and write rates per drive letter. The physical-disk instance name lists the
+ * letters of its volumes (`0 C:`, `1 D: E:`), so every volume on a disk shows that
+ * disk's throughput — Windows has no per-volume counter.
+ */
+export function diskThroughputByLetter(counters: CounterSample | null): Map<string, { read: number; write: number }> {
+  const result = new Map<string, { read: number; write: number }>()
+  for (const disk of counters?.disks ?? []) {
+    if (disk.n === '_Total' || !Number.isFinite(disk.r) || !Number.isFinite(disk.w)) continue
+    for (const letter of disk.n.match(/[a-z]:/gi) ?? []) {
+      result.set(letter.toUpperCase(), { read: Math.max(disk.r, 0), write: Math.max(disk.w, 0) })
+    }
+  }
+  return result
+}
+
 function buildDrives(raw: RawProbeState): StorageDrive[] {
+  const throughput = diskThroughputByLetter(raw.counters)
+
   const byMount = new Map(
     raw.blockDevices
       .filter((device) => nonEmpty(device.mount))
@@ -251,6 +373,8 @@ function buildDrives(raw: RawProbeState): StorageDrive[] {
       const device = byMount.get(mountPoint.toLowerCase())
       const remote = isRemoteVolume(device)
       const disk = device?.device ? diskByDevice.get(device.device) : undefined
+      // A share has no physical disk here, so it never gets another disk's rate.
+      const rates = remote ? undefined : throughput.get(mountPoint.slice(0, 2).toUpperCase())
 
       return {
         id: nonEmpty(volume.fs) ?? mountPoint,
@@ -263,9 +387,9 @@ function buildDrives(raw: RawProbeState): StorageDrive[] {
         filesystem: nonEmpty(volume.type) ?? '—',
         totalBytes: volume.size,
         freeBytes: Math.max(positive(volume.available) ?? 0, 0),
-        // Neither `disksIO` nor `fsStats` returns anything on Windows.
-        readMbPerSec: null,
-        writeMbPerSec: null,
+        // From the performance counters; `disksIO` and `fsStats` return nothing on Windows.
+        readMbPerSec: rates ? rates.read / BYTES_PER_MB : null,
+        writeMbPerSec: rates ? rates.write / BYTES_PER_MB : null,
         // A share is never the boot volume, whatever letter it was mapped to.
         system: !remote && isSystemVolume(mountPoint, raw),
       }
@@ -385,6 +509,12 @@ function buildBattery(raw: RawProbeState): BatteryInfo | null {
   }
 }
 
+/** `systeminformation` reports the directory and the file name separately on Windows. */
+function joinPath(directory: string, file: string): string {
+  if (directory.toLowerCase().endsWith(file.toLowerCase())) return directory
+  return `${directory.replace(/[\\/]+$/, '')}\\${file}`
+}
+
 /** Pseudo-processes that account for idle time rather than for a program. */
 const IDLE_PROCESS = /^(?:system idle process|idle)$/i
 
@@ -404,8 +534,17 @@ export function summarizeProcesses(data: si.Systeminformation.ProcessesData): Pr
     if (!name || entry.pid === 0 || IDLE_PROCESS.test(name)) continue
 
     const key = name.toLowerCase()
-    const group = groups.get(key) ?? { name, instances: 0, cpuPercent: 0, memoryBytes: 0 }
+    const group: ProcessGroup = groups.get(key) ?? {
+      name,
+      instances: 0,
+      pids: [],
+      path: null,
+      cpuPercent: 0,
+      memoryBytes: 0,
+    }
     group.instances += 1
+    group.pids.push(entry.pid)
+    group.path ??= nonEmpty(entry.path) && nonEmpty(entry.name) ? joinPath(entry.path, entry.name) : null
     group.cpuPercent += Number.isFinite(entry.cpu) ? Math.max(entry.cpu, 0) : 0
     group.memoryBytes += Number.isFinite(entry.memRss) ? Math.max(entry.memRss, 0) * 1024 : 0
     groups.set(key, group)
@@ -439,5 +578,7 @@ export function buildReading(raw: RawProbeState, capturedAt: number): HardwareRe
     network: buildNetwork(raw),
     battery: buildBattery(raw),
     processes: raw.processes,
+    fans: sensorFans(raw),
+    sensorProvider: raw.counters?.provider ?? null,
   }
 }

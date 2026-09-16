@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { AlertEngine } from '../lib/alerts'
+import { AlertEngine, DEFAULT_ALERT_THRESHOLDS } from '../lib/alerts'
 import { computeHardwareScore, computeHeadroom } from '../lib/hardwareScore'
 import { subscribeHardware, TICK_MS } from '../services/hardwareService'
-import type { HardwareAlert, HardwareScore, HardwareSnapshot, Headroom } from '../types/hardware'
+import type { AlertThresholds, HardwareAlert, HardwareScore, HardwareSnapshot, Headroom } from '../types/hardware'
 
 export interface HardwareMonitor {
   /** `null` only for the very first frame, before the first reading arrives. */
@@ -26,6 +26,8 @@ export interface MonitorOptions {
    * while the dashboard may be paused, and must not quietly restart the measurement.
    */
   controlsProbe?: boolean
+  /** Limits for the in-app alert banner — the same ones the main process notifies with. */
+  thresholds?: AlertThresholds
 }
 
 /**
@@ -40,6 +42,7 @@ export interface MonitorOptions {
 export function useHardwareMonitor({
   intervalMs = TICK_MS,
   controlsProbe = true,
+  thresholds = DEFAULT_ALERT_THRESHOLDS,
 }: MonitorOptions = {}): HardwareMonitor {
   const [snapshot, setSnapshot] = useState<HardwareSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -49,7 +52,8 @@ export function useHardwareMonitor({
   // The last window, kept in a ref so resubscribing does not depend on the snapshot's
   // identity — that changes every tick and would restart the subscription each second.
   const historyRef = useRef<HardwareSnapshot['history']>([])
-  const engineRef = useRef(new AlertEngine())
+  const engineRef = useRef(new AlertEngine(thresholds))
+  useEffect(() => engineRef.current.setThresholds(thresholds), [thresholds])
 
   useEffect(() => {
     if (!snapshot) return

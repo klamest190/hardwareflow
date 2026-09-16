@@ -76,9 +76,11 @@ function LoadingState() {
  * panels. Alerts stay visible on every page.
  */
 export default function App() {
-  const { snapshot, score, headroom, alerts, error, paused, setPaused } = useHardwareMonitor()
-  const history = useHistory()
   const { settings, update } = useDesktopSettings()
+  const { snapshot, score, headroom, alerts, error, paused, setPaused } = useHardwareMonitor({
+    thresholds: settings?.thresholds,
+  })
+  const history = useHistory()
   const [page, setPage] = useState<PageKey>(initialPage)
 
   if (!snapshot || !score || !headroom) return <LoadingState />
@@ -175,6 +177,8 @@ export default function App() {
                   cpu={snapshot.cpu}
                   load={snapshot.cpuLoad}
                   history={snapshot.history}
+                  fans={snapshot.fans}
+                  sensorProvider={snapshot.sensorProvider}
                 />
                 <PerformanceMeter className="md:col-span-2 xl:col-span-4" score={score} />
                 <MemoryCard className="xl:col-span-4" memory={snapshot.memory} history={snapshot.history} />
@@ -192,14 +196,25 @@ export default function App() {
             )}
 
             {current === 'processes' && (
-              <ProcessesCard className="md:col-span-2 xl:col-span-12" processes={snapshot.processes} />
+              <ProcessesCard
+                className="md:col-span-2 xl:col-span-12"
+                processes={snapshot.processes}
+                actions={
+                  bridge
+                    ? {
+                        kill: (group) => bridge.killProcesses(group.name, group.pids),
+                        showInFolder: (path) => void bridge.showInFolder(path),
+                      }
+                    : null
+                }
+              />
             )}
 
             {current === 'battery' && snapshot.battery && (
               <BatteryCard className="md:col-span-2 xl:col-span-6" battery={snapshot.battery} />
             )}
 
-            {current === 'history' && <HistoryCard className="md:col-span-2 xl:col-span-12" buckets={history} />}
+            {current === 'history' && <HistoryCard className="md:col-span-2 xl:col-span-12" buckets={history.buckets} alerts={history.alerts} />}
 
             {current === 'settings' && (
               <SettingsCard

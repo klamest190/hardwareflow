@@ -1,7 +1,7 @@
 {
   "name": "hardwareflow",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Dark-Mode System-Monitor mit echtem Hardware-Zugriff",
   "author": "HardwareFlow",
   "type": "module",
@@ -19,7 +19,8 @@
     "smoke": "node scripts/headless.mjs scripts/smoke.tsx",
     "check": "npm run lint && npm run build && npm run smoke",
     "probe": "node scripts/build-electron.mjs && node dist-electron/probeReport.cjs",
-    "selftest:app": "npm run build && npm run build:electron && node scripts/selftest-app.mjs"
+    "selftest:app": "npm run build && npm run build:electron && node scripts/selftest-app.mjs",
+    "selftest:packaged": "node scripts/selftest-packaged.mjs"
   },
   "dependencies": {
     "systeminformation": "^5.33.10"
@@ -67,7 +68,11 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HardwareFlow",
+      "runAfterFinish": true
     },
     "mac": {
       "target": "dmg",

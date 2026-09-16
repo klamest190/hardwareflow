@@ -1,6 +1,16 @@
 import { renderToString } from 'react-dom/server'
 
-import { buildReading, summarizeProcesses, type RawProbeState } from '../electron/probeMapping'
+import {
+  buildReading,
+  diskThroughputByLetter,
+  gpuUtilisationByAdapter,
+  isCounterSample,
+  sensorCpuTemperature,
+  summarizeProcesses,
+  type RawProbeState,
+} from '../electron/probeMapping'
+import { refusalReason } from '../electron/processPolicy'
+import { renderTrayIcon, TRAY_ICON_SIZE } from '../electron/trayIcon'
 import { AlertBanner } from '../src/components/AlertBanner'
 import { BatteryCard } from '../src/components/BatteryCard'
 import { CpuCard } from '../src/components/CpuCard'
@@ -14,7 +24,7 @@ import { PerformanceMeter } from '../src/components/PerformanceMeter'
 import { ProcessesCard } from '../src/components/ProcessesCard'
 import { SettingsCard } from '../src/components/SettingsCard'
 import { StorageCard } from '../src/components/StorageCard'
-import { AlertEngine } from '../src/lib/alerts'
+import { AlertEngine, DEFAULT_ALERT_THRESHOLDS, sanitizeThresholds } from '../src/lib/alerts'
 import { lookupCpu, lookupGpu } from '../src/lib/benchmarks'
 import {
   describeDevice,
@@ -30,7 +40,10 @@ import {
   downsample,
   forecastSystemDrive,
   HistoryAccumulator,
+  historyToCsv,
   isHistoryBucket,
+  isLoggedAlert,
+  trimAlertLog,
   MINUTE_MS,
   trimHistory,
 } from '../src/lib/history'
@@ -43,9 +56,10 @@ import {
   subscribeHardware,
   toSample,
 } from '../src/services/hardwareService'
-import { MockHardwareSource, mockHistory } from '../src/services/mockHardware'
+import { MockHardwareSource, mockAlertLog, mockHistory } from '../src/services/mockHardware'
 import type { HardwareReading, HardwareSnapshot, HistoryBucket } from '../src/types/hardware'
 import notebookFixture from './fixtures/notebook-rtx4070.json'
+import notebookCounters from './fixtures/notebook-rtx4070-counters.json'
 
 const GIB = 1024 ** 3
 
@@ -386,11 +400,88 @@ const desktop = buildReading(
 )
 check(desktop.battery === null, 'Rechner ohne Akku bekommt eine Akkukarte')
 
+// ─── 5a. Leistungsindikatoren: dieselbe Maschine, mit dem PowerShell-Reader aufgenommen ─
+// Ohne Reader (alte Fixture) bleibt alles n/v — das ist oben schon geprüft.
+check(real.drives.every((drive) => drive.readMbPerSec === null), 'Ohne Zähler erscheint trotzdem Disk-I/O')
+
+const counted = notebookCounters as unknown as RawProbeState
+const withCountersReading = buildReading(counted, Date.now())
+const systemDrive = withCountersReading.drives.find((drive) => drive.mountPoint === 'C:')
+check(
+  systemDrive?.readMbPerSec !== null && systemDrive?.readMbPerSec !== undefined && systemDrive.readMbPerSec > 5,
+  `C: liest ${systemDrive?.readMbPerSec} MB/s statt ≈ 5,1 (Zähler 5 330 770 B/s)`,
+)
+check(
+  withCountersReading.drives.find((drive) => drive.mountPoint === 'H:')?.readMbPerSec === null,
+  'Netzlaufwerk H: bekommt den Durchsatz der lokalen Platte',
+)
+const arc = withCountersReading.gpus.find((gpu) => gpu.model.includes('Arc'))
+check(arc?.usagePercent !== null && arc?.usagePercent !== undefined, 'Intel-iGPU ohne Auslastung trotz Zählern')
+check(
+  withCountersReading.gpus.every((gpu) => !/basic render/i.test(gpu.model)),
+  'Microsoft Basic Render Driver als Grafikadapter gelistet',
+)
+
+// GPU-Engines: pro Prozess summiert, pro Adapter die geschäftigste Engine-Art.
+const engineCounters = {
+  ...counted.counters!,
+  engines: [
+    { n: 'pid_10_luid_0x00000000_0x00016ACF_phys_0_eng_0_engtype_3D', u: 20 },
+    { n: 'pid_11_luid_0x00000000_0x00016ACF_phys_0_eng_0_engtype_3D', u: 15 },
+    { n: 'pid_12_luid_0x00000000_0x00016ACF_phys_0_eng_3_engtype_VideoDecode', u: 30 },
+    { n: 'pid_13_luid_0x00000000_0x00016F2E_phys_0_eng_0_engtype_Compute', u: 64 },
+  ],
+}
+const engineLoad = gpuUtilisationByAdapter(engineCounters)
+check(engineLoad.get('intel arc graphics') === 35, `Arc-Last ${engineLoad.get('intel arc graphics')} statt 35 (20 + 15 in 3D)`)
+check(
+  engineLoad.get('nvidia geforce rtx 4070 laptop gpu') === 64,
+  `RTX-Last ${engineLoad.get('nvidia geforce rtx 4070 laptop gpu')} statt 64`,
+)
+check(![...engineLoad.keys()].some((key) => key.includes('basic render')), 'Software-Rasterizer in der GPU-Last')
+// nvidia-smi hat Vorrang: Die Zähler füllen nur, was der Treiber nicht meldet.
+const nvidiaFirst = buildReading({ ...counted, counters: engineCounters }, Date.now())
+const rtx = nvidiaFirst.gpus.find((gpu) => gpu.model.includes('4070'))
+const smiValue = counted.graphics?.controllers.find((controller) => controller.model.includes('4070'))?.utilizationGpu
+check(rtx?.usagePercent === smiValue, `RTX-Last ${rtx?.usagePercent} statt nvidia-smi ${smiValue}`)
+
+check(diskThroughputByLetter({ ...engineCounters, disks: [{ n: '1 D: E:', r: 1024, w: 2048 }] }).get('E:')?.write === 2048, 'Mehrere Buchstaben pro Platte nicht zugeordnet')
+
+// Sensoren aus LibreHardwareMonitor: Package vor Kernen, Lüfter mit Drehzahl, Leistung.
+const lhm: RawProbeState = {
+  ...counted,
+  counters: {
+    ...counted.counters!,
+    provider: 'LibreHardwareMonitor',
+    sensors: [
+      { i: '/intelcpu/0/temperature/0', n: 'CPU Core #1', t: 'Temperature', v: 88 },
+      { i: '/intelcpu/0/temperature/9', n: 'CPU Package', t: 'Temperature', v: 81.5 },
+      { i: '/intelcpu/0/power/0', n: 'CPU Package', t: 'Power', v: 42.3 },
+      { i: '/gpu-nvidia/0/temperature/0', n: 'GPU Core', t: 'Temperature', v: 70 },
+      { i: '/lpc/nct6798d/fan/0', n: 'Fan #1', t: 'Fan', v: 2451.6 },
+      { i: '/lpc/nct6798d/fan/1', n: 'Fan #2', t: 'Fan', v: 0 },
+    ],
+  },
+}
+const lhmReading = buildReading(lhm, Date.now())
+check(lhmReading.cpuLoad.temperatureC === 81.5, `CPU-Temperatur ${lhmReading.cpuLoad.temperatureC} statt Package 81.5`)
+check(lhmReading.cpuLoad.powerWatts === 42.3, `CPU-Leistung ${lhmReading.cpuLoad.powerWatts} statt 42.3 W`)
+check(
+  lhmReading.fans.length === 1 && lhmReading.fans[0].rpm === 2452,
+  `Lüfter: ${JSON.stringify(lhmReading.fans)} (stehender Lüfter muss fehlen)`,
+)
+check(lhmReading.sensorProvider === 'LibreHardwareMonitor', 'Sensorquelle nicht angegeben')
+check(
+  sensorCpuTemperature({ ...lhm, counters: { ...lhm.counters!, sensors: lhm.counters!.sensors.filter((s) => s.n !== 'CPU Package') } }) === 88,
+  'Ohne Package-Sensor nicht der heißeste Kern',
+)
+check(isCounterSample(counted.counters) && !isCounterSample({ disks: 'kaputt' }), 'Formprüfung der Zählerzeile falsch')
+
 // ─── 6. Prozesse zusammenfassen ─────────────────────────────────────────────────────
 type ProcessRow = Parameters<typeof summarizeProcesses>[0]['list'][number]
 // Nur die Felder, die das Zusammenfassen liest.
 const processRow = (pid: number, name: string, cpu: number, memRss: number) =>
-  ({ pid, name, cpu, memRss }) as ProcessRow
+  ({ pid, name, cpu, memRss, path: `/apps/${name}` }) as ProcessRow
 const folded = summarizeProcesses({
   all: 5,
   running: 5,
@@ -408,7 +499,11 @@ const folded = summarizeProcesses({
 check(folded.byCpu[0]?.name === 'Code.exe', `Top-CPU-Prozess ${folded.byCpu[0]?.name} statt Code.exe`)
 const chrome = folded.byMemory[0]
 check(
-  chrome?.name === 'chrome.exe' && chrome.instances === 3 && chrome.memoryBytes === 1_100_000 * 1024,
+  chrome?.name === 'chrome.exe' &&
+    chrome.instances === 3 &&
+    chrome.memoryBytes === 1_100_000 * 1024 &&
+    chrome.pids.join() === '10,11,12' &&
+    chrome.path === '/apps/chrome.exe',
   `Chrome nicht korrekt gebündelt: ${JSON.stringify(chrome)}`,
 )
 check(!folded.byCpu.some((group) => group.name.includes('Idle')), 'Leerlaufprozess nicht herausgefiltert')
@@ -480,6 +575,62 @@ check(
   'Leerer Akku ohne Netzteil ohne kritische Warnung',
 )
 
+// ─── 8a. Einstellbare Schwellen und Warnprotokoll ──────────────────────────────────
+const strict = new AlertEngine(sanitizeThresholds({ ...DEFAULT_ALERT_THRESHOLDS, memoryPercent: 10 }))
+const busyRam = (at: number): HardwareReading => ({
+  ...snapshot,
+  capturedAt: at,
+  memory: { ...snapshot.memory, usedBytes: snapshot.memory.totalBytes * 0.3 },
+})
+strict.update(busyRam(t0))
+check(strict.update(busyRam(t0 + 61_000)).fired.some((alert) => alert.key === 'memory'), 'Schwelle 10 % RAM löst nicht aus')
+strict.setThresholds(DEFAULT_ALERT_THRESHOLDS)
+check(strict.update(busyRam(t0 + 62_000)).active.length === 0, 'Zurückgesetzte Schwelle hält die Warnung fest')
+
+const sanitized = sanitizeThresholds({ cpuTempC: 500, memoryPercent: 'viel', batteryPercent: 12.6 })
+check(sanitized.cpuTempC === 110, `CPU-Schwelle nicht begrenzt: ${sanitized.cpuTempC}`)
+check(sanitized.memoryPercent === DEFAULT_ALERT_THRESHOLDS.memoryPercent, 'Ungültige Schwelle nicht auf Standard')
+check(sanitized.batteryPercent === 13, `Schwelle nicht gerundet: ${sanitized.batteryPercent}`)
+check(sanitizeThresholds(null).gpuTempC === DEFAULT_ALERT_THRESHOLDS.gpuTempC, 'Fehlende Schwellen nicht auf Standard')
+
+const now = Date.now()
+const log = trimAlertLog(
+  [
+    { t: now - 8 * DAY_MS, key: 'memory', title: 'alt', message: '', severity: 'warning' },
+    { t: now - 60_000, key: 'battery', title: 'neu', message: '', severity: 'critical' },
+    { t: now - 120_000, key: 'gpu-temp', title: 'mitte', message: '', severity: 'warning' },
+  ],
+  now,
+)
+check(log.map((entry) => entry.title).join() === 'mitte,neu', `Warnprotokoll: ${log.map((entry) => entry.title).join()}`)
+check(isLoggedAlert(log[0]) && !isLoggedAlert({ t: 1, key: 'memory', severity: 'egal' }), 'Formprüfung Warnprotokoll falsch')
+
+const csv = historyToCsv(week.slice(-3))
+const csvLines = csv.replace(/^\uFEFF/, '').trim().split('\r\n')
+check(csv.startsWith('\uFEFF'), 'CSV ohne BOM — Excel zeigt die Umlaute falsch')
+check(csvLines.length === 4 && csvLines[0].startsWith('Zeit;CPU Ø %'), `CSV-Kopf/Zeilen: ${csvLines.length}`)
+check(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2};\d+,\d;/.test(csvLines[1]), `CSV-Zeile im falschen Format: ${csvLines[1]}`)
+
+// ─── 8b. Prozesse beenden: Sperrliste ───────────────────────────────────────────────
+check(refusalReason('csrss.exe', [712], [1]) !== null, 'csrss.exe darf beendet werden')
+check(refusalReason('SVCHOST.EXE', [900], [1]) !== null, 'svchost unabhängig von Groß-/Kleinschreibung nicht gesperrt')
+check(refusalReason('chrome.exe', [4, 12], [1]) !== null, 'PID 4 (System) nicht abgelehnt')
+check(refusalReason('electron.exe', [321], [321]) !== null, 'HardwareFlow würde sich selbst beenden')
+check(refusalReason('chrome.exe', [10_001, 10_002], [1]) === null, 'Gewöhnlicher Prozess abgelehnt')
+
+// ─── 8c. Tray-Symbol ────────────────────────────────────────────────────────────────
+const icon = renderTrayIcon(100, 0)
+check(icon.length === TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4, `Tray-Raster hat ${icon.length} Bytes`)
+const pixel = (x: number, y: number) => {
+  const offset = (y * TRAY_ICON_SIZE + x) * 4
+  // BGRA → #rrggbb
+  return `#${[icon[offset + 2], icon[offset + 1], icon[offset]].map((v) => v.toString(16).padStart(2, '0')).join('')}`
+}
+check(pixel(8, 6) === '#d03b3b', `Volle CPU oben nicht kritisch-rot: ${pixel(8, 6)}`)
+check(pixel(20, 6) === '#2b303b', `Leerer RAM-Balken oben nicht leer: ${pixel(20, 6)}`)
+check(pixel(20, TRAY_ICON_SIZE - 6) === '#0ca30c', `RAM-Balken unten ohne Mindestfüllung: ${pixel(20, TRAY_ICON_SIZE - 6)}`)
+check(icon[3] === 0, 'Tray-Ecke nicht transparent')
+
 // ─── 9. Formatierung ─────────────────────────────────────────────────────────────────
 const deviceCases: Array<[string, string, string]> = [
   ['NVIDIA', 'NVIDIA GeForce RTX 4070 Laptop GPU', 'NVIDIA GeForce RTX 4070 Laptop GPU'],
@@ -534,16 +685,29 @@ const markup = renderToString(
     />
     <AlertBanner alerts={new AlertEngine().update(fullDrive).active} />
     <PerformanceMeter score={score} />
-    <CpuCard cpu={snapshot.cpu} load={snapshot.cpuLoad} history={snapshot.history} />
+    <CpuCard
+      cpu={snapshot.cpu}
+      load={snapshot.cpuLoad}
+      history={snapshot.history}
+      fans={snapshot.fans}
+      sensorProvider={snapshot.sensorProvider}
+    />
     <MemoryCard memory={snapshot.memory} history={snapshot.history} />
     <GpuCard gpus={snapshot.gpus} />
     <StorageCard drives={snapshot.drives} physicalDisks={snapshot.physicalDisks} />
     <NetworkCard network={snapshot.network} history={snapshot.history} />
     <ProcessesCard processes={snapshot.processes} />
-    <HistoryCard buckets={week} />
+    <HistoryCard buckets={week} alerts={mockAlertLog(Date.now())} />
     <SettingsCard settings={null} onUpdate={() => {}} onOpenMini={null} />
     <SettingsCard
-      settings={{ autostart: false, autostartAvailable: false, notifications: true, closeToTray: true }}
+      settings={{
+        autostart: false,
+        autostartAvailable: false,
+        notifications: true,
+        closeToTray: true,
+        thresholds: DEFAULT_ALERT_THRESHOLDS,
+        version: '0.2.0',
+      }}
       onUpdate={() => {}}
       onOpenMini={() => {}}
     />
@@ -553,6 +717,8 @@ for (const expected of [
   'HardwareFlow',
   'Simulation',
   'ATLAS-WS01',
+  'LibreHardwareMonitor',
+  'U/min',
   'Ryzen 9 7950X3D',
   'GeForce RTX 4080 SUPER',
   'Weitere Adapter',
@@ -563,6 +729,11 @@ for (const expected of [
   'Oberklasse',
   'Reserve',
   'Nur in der Desktop-App',
+  'Warnschwellen',
+  '0.2.0',
+  'Warnungen im Zeitraum',
+  'Arbeitsspeicher voll',
+  'CSV',
   'Nur in der installierten App',
   'Netzwerk',
   'Prozesse',
@@ -583,7 +754,9 @@ const realSnapshot: HardwareSnapshot = { ...real, history: [toSample(real)] }
 const realMarkup = renderToString(
   <>
     <PerformanceMeter score={realScore} />
+    <CpuCard cpu={real.cpu} load={real.cpuLoad} history={realSnapshot.history} fans={real.fans} sensorProvider={real.sensorProvider} />
     <GpuCard gpus={real.gpus} />
+    <StorageCard drives={withCountersReading.drives} physicalDisks={withCountersReading.physicalDisks} />
     <StorageCard drives={real.drives} physicalDisks={real.physicalDisks} />
     <NetworkCard network={real.network} history={realSnapshot.history} />
     <ProcessesCard processes={real.processes} />
@@ -601,6 +774,8 @@ for (const expected of [
   'Deutlich gealtert',
   'Netzlaufwerke',
   'Durchsatz erscheint',
+  'mit laufendem LibreHardwareMonitor verfügbar',
+  'MB/s',
   'Der Verlauf füllt sich',
 ]) {
   check(realMarkup.includes(expected), `Markup der echten Maschine enthält "${expected}" nicht`)

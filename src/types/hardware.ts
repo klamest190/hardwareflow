@@ -48,12 +48,22 @@ export interface CpuLoad {
   usagePercent: number
   /** `null` when current clock cannot be read. */
   currentClockGhz: number | null
-  /** `null` without a thermal sensor — the normal case on Windows. */
+  /**
+   * Package temperature. Windows itself reports none; on a real machine this comes only
+   * from a running LibreHardwareMonitor, so `null` is the normal case.
+   */
   temperatureC: number | null
+  /** Package power draw, from the same sensor provider; `null` without one. */
+  powerWatts: number | null
   /** Per-logical-core load, 0–100, `threads` entries long. */
   perCore: number[]
   /** `null` when the process table is not sampled this tick. */
   processCount: number | null
+}
+
+export interface FanReading {
+  name: string
+  rpm: number
 }
 
 export interface MemoryInfo {
@@ -200,6 +210,10 @@ export interface BatteryInfo {
 export interface ProcessGroup {
   name: string
   instances: number
+  /** Every process folded into the group — what "Beenden" acts on. */
+  pids: number[]
+  /** Executable path of the first instance; `null` when Windows withholds it. */
+  path: string | null
   /** Share of the whole machine, 0–100. */
   cpuPercent: number
   memoryBytes: number
@@ -243,6 +257,13 @@ export interface HardwareReading {
   battery: BatteryInfo | null
   /** `null` until the process table has been read once. */
   processes: ProcessSummary | null
+  /** Fans the sensor provider reports; empty without one. */
+  fans: FanReading[]
+  /**
+   * Which hardware-sensor tool supplied temperature, fan and power readings, e.g.
+   * `LibreHardwareMonitor`; `null` when none is running.
+   */
+  sensorProvider: string | null
 }
 
 export interface HardwareSnapshot extends HardwareReading {
@@ -324,4 +345,22 @@ export interface HardwareAlert {
   title: string
   message: string
   severity: 'warning' | 'critical'
+}
+
+/** An alert as it was raised, kept for the history page. */
+export interface LoggedAlert extends HardwareAlert {
+  /** Epoch milliseconds. */
+  t: number
+}
+
+/** The limits the alert rules compare against; editable in the settings. */
+export interface AlertThresholds {
+  cpuTempC: number
+  gpuTempC: number
+  memoryPercent: number
+  /** The system drive warns below this share free … */
+  systemDriveFreePercent: number
+  /** … or below this many gigabytes, whichever comes first. */
+  systemDriveFreeGb: number
+  batteryPercent: number
 }

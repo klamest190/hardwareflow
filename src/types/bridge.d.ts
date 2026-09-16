@@ -1,4 +1,4 @@
-import type { HardwareReading, HistoryBucket } from './hardware'
+import type { AlertThresholds, HardwareReading, HistoryBucket, LoggedAlert } from './hardware'
 
 /** Desktop settings the main process owns and persists. */
 export interface DesktopSettings {
@@ -10,6 +10,19 @@ export interface DesktopSettings {
   notifications: boolean
   /** Closing the window hides it in the tray instead of quitting. */
   closeToTray: boolean
+  /** Limits of the alert rules; the renderer's banner uses the same values. */
+  thresholds: AlertThresholds
+  /** App version, shown in the settings. */
+  version: string
+}
+
+/** What happened to a "Beenden" request, per process. */
+export interface KillResult {
+  ended: number
+  /** Processes that could not be ended, with the reason — access denied is the usual one. */
+  failed: Array<{ pid: number; reason: string }>
+  /** Set when the whole request was refused, e.g. for a protected system process. */
+  refused: string | null
 }
 
 /**
@@ -33,6 +46,12 @@ export interface HardwareFlowBridge {
   onProbeError(listener: (message: string | null) => void): () => void
   /** Stored per-minute history, oldest first, up to a week. */
   getHistory(): Promise<HistoryBucket[]>
+  /** Alerts raised in the last week, oldest first. */
+  getAlertLog(): Promise<LoggedAlert[]>
+  /** Ends every process of a program. Protected system processes are refused. */
+  killProcesses(name: string, pids: number[]): Promise<KillResult>
+  /** Opens Explorer with the executable selected. */
+  showInFolder(path: string): Promise<void>
   getSettings(): Promise<DesktopSettings>
   /** Applies a partial update and returns the settings as they now stand. */
   updateSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings>

@@ -1,6 +1,7 @@
 import si from 'systeminformation'
 
 import type { HardwareReading } from '../src/types/hardware'
+import { CounterReader } from './counterReader'
 import { buildReading, emptyRawState, summarizeProcesses, type RawProbeState } from './probeMapping'
 
 /**
@@ -17,6 +18,10 @@ import { buildReading, emptyRawState, summarizeProcesses, type RawProbeState } f
  *    itself.
  * 2. **No invented values.** Where a platform reports nothing the field stays `null`
  *    all the way to the UI.
+ *
+ * Disk throughput, Intel/AMD GPU load and — when LibreHardwareMonitor runs — CPU
+ * temperature, fans and package power come from a separate, long-running reader
+ * (`counterReader.ts`) that streams into the same cache.
  *
  * This class only fetches and caches. Turning the cache into a reading is
  * `probeMapping.ts`, which is tested against recorded output from real machines.
@@ -51,10 +56,39 @@ export class HardwareProbe {
   /** Tiers whose last run threw, with the reason — drives the UI's warning banner. */
   private readonly failing = new Map<string, string>()
   private listener: ((reading: HardwareReading) => void) | null = null
+  private readonly counterReader: CounterReader
+  private counterWaiters: Array<() => void> = []
 
   constructor(options: ProbeOptions = {}) {
     this.intervalMs = options.intervalMs ?? 1000
     this.onStatus = options.onStatus ?? (() => {})
+    this.counterReader = new CounterReader({
+      onSample: (sample) => {
+        this.raw.counters = sample
+        for (const resolve of this.counterWaiters.splice(0)) resolve()
+      },
+      onStatus: (message) => {
+        if (message) this.failing.set('counters', message)
+        else this.failing.delete('counters')
+        this.report()
+      },
+    })
+  }
+
+  /**
+   * Resolves with the first counter sample, or after `timeoutMs`. Only the one-shot
+   * diagnostics need it: the dashboard simply shows the values once they arrive, which
+   * takes a few seconds while PowerShell compiles its DXGI helper.
+   */
+  waitForCounters(timeoutMs: number): Promise<void> {
+    if (this.raw.counters || process.platform !== 'win32') return Promise.resolve()
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs)
+      this.counterWaiters.push(() => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
   }
 
   /** Runs `task` unless its tier is still busy; reports failures without throwing. */
@@ -151,6 +185,8 @@ export class HardwareProbe {
 
   /** Reads every tier once, so the first emitted reading is already complete. */
   async warmUp(): Promise<void> {
+    // Started, not awaited: its first sample takes several seconds and fills in later.
+    this.counterReader.start()
     await Promise.all([
       this.guarded('static', () => this.refreshStatic()),
       this.guarded('fast', () => this.refreshFast()),
@@ -180,10 +216,14 @@ export class HardwareProbe {
    */
   pause(): void {
     this.clearTimers()
+    // The counter reader is a PowerShell process running WMI queries every two
+    // seconds — exactly what a pause is meant to stop.
+    this.counterReader.stop()
   }
 
   resume(): void {
     if (this.timers.length > 0 || !this.listener) return
+    this.counterReader.start()
     this.startTimers()
     void this.guarded('fast', () => this.tick())
   }
@@ -196,6 +236,11 @@ export class HardwareProbe {
   private async tick() {
     await this.refreshFast()
     if (!this.paused) this.listener?.(this.reading())
+  }
+
+  /** Whether the performance-counter process is running. */
+  get countersRunning(): boolean {
+    return this.counterReader.processAlive
   }
 
   get paused(): boolean {
@@ -216,6 +261,7 @@ export class HardwareProbe {
 
   stop(): void {
     this.clearTimers()
+    this.counterReader.stop()
     this.listener = null
   }
 

@@ -2,6 +2,7 @@ import { Maximize2, X } from 'lucide-react'
 
 import { HeadroomRing } from './components/DashboardHeader'
 import { Meter } from './components/ui/Meter'
+import { useDesktopSettings } from './hooks/useDesktopSettings'
 import { useHardwareMonitor } from './hooks/useHardwareMonitor'
 import { formatBitrate } from './lib/format'
 import { loadColor, STATUS_COLORS } from './lib/status'
@@ -29,7 +30,8 @@ function Row({ label, value, percent }: { label: string; value: string; percent:
  * but never pauses or resumes it — that belongs to the dashboard.
  */
 export function MiniView() {
-  const { snapshot, headroom, alerts } = useHardwareMonitor({ controlsProbe: false })
+  const { settings } = useDesktopSettings()
+  const { snapshot, headroom, alerts } = useHardwareMonitor({ controlsProbe: false, thresholds: settings?.thresholds })
 
   if (!snapshot || !headroom) {
     return <div className="grid h-dvh place-items-center text-[11px] text-muted">Verbinde …</div>
