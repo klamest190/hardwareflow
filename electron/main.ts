@@ -17,6 +17,7 @@ import type { DesktopSettings } from '../src/types/bridge'
 import type { HardwareAlert, HardwareReading } from '../src/types/hardware'
 import { HardwareProbe } from './hardwareProbe'
 import { HistoryStore } from './historyStore'
+import { exportPdfReport } from './pdfReport'
 import { isShowablePath, killProcesses } from './processControl'
 import { applySettings, currentSettings, HIDDEN_ARG, storedSettings, storeSettings } from './settings'
 import { renderTrayIcon, TRAY_ICON_SIZE } from './trayIcon'
@@ -365,6 +366,17 @@ ipcMain.handle('settings:update', (_event, patch: Partial<DesktopSettings>) => {
   return next
 })
 
+// The renderer builds the report document — it holds the readings and the formatting.
+// The main process is only what can rasterise it and reach the filesystem.
+ipcMain.handle('report:exportPdf', (event, html: unknown, fileName: unknown) => {
+  if (typeof html !== 'string' || typeof fileName !== 'string') {
+    return { path: null, cancelled: false, error: 'Ungültige Report-Anfrage.' }
+  }
+  // The self-test cannot click a modal save dialog, so there the target is fixed.
+  const fixedPath = SELFTEST ? path.join(app.getPath('userData'), fileName) : null
+  return exportPdfReport(html, fileName, BrowserWindow.fromWebContents(event.sender), fixedPath)
+})
+
 ipcMain.handle('window:openMini', () => openMiniView())
 
 ipcMain.handle('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
@@ -516,6 +528,29 @@ async function runSelfTest() {
     await screenshot(target, `seite-${page.nav.toLowerCase().replace('ü', 'ue')}`)
   }
   await clickButton('Übersicht')
+
+  // PDF-Report über den echten Knopf: Renderer baut das Dokument, der Hauptprozess
+  // druckt es in einem unsichtbaren Fenster. Geprüft wird die entstandene Datei, denn
+  // ein leeres oder abgebrochenes PDF sieht im UI genauso aus wie ein gelungenes.
+  await clickButton('PDF-Report')
+  const reportSaved = await waitFor(() => buttonShows('Gespeichert'), 45_000)
+  if (!reportSaved) {
+    problems.push('PDF-Report wurde nicht gespeichert')
+  } else {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const userData = app.getPath('userData')
+    const reports = readdirSync(userData).filter((name) => name.endsWith('.pdf'))
+    if (reports.length === 0) {
+      problems.push('PDF-Report hinterlässt keine Datei')
+    } else {
+      const file = path.join(userData, reports[0])
+      const bytes = readFileSync(file)
+      console.log(`[selftest] PDF-Report: ${file} (${Math.round(bytes.length / 1024)} kB)`)
+      if (bytes.subarray(0, 5).toString() !== '%PDF-') problems.push('Report-Datei ist kein PDF')
+      // Ein Bericht über eine ganze Maschine, der unter 20 kB bleibt, ist leer geblieben.
+      if (bytes.length < 20_000) problems.push(`Report-PDF ist mit ${bytes.length} Bytes zu klein`)
+    }
+  }
 
   // Mini-Ansicht über die Navigation öffnen. Sie darf die Messung nicht anhalten oder
   // fortsetzen — sie ist nur ein zweiter Zuschauer.

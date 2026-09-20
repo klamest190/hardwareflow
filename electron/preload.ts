@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { DesktopSettings, KillResult } from '../src/types/bridge'
+import type { DesktopSettings, KillResult, PdfReportResult } from '../src/types/bridge'
 import type { HardwareReading, HistoryBucket, LoggedAlert } from '../src/types/hardware'
 
 /**
@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('hardwareflow', {
 
   updateSettings: (patch: Partial<DesktopSettings>): Promise<DesktopSettings> =>
     ipcRenderer.invoke('settings:update', patch),
+
+  exportPdfReport: (html: string, fileName: string): Promise<PdfReportResult> =>
+    ipcRenderer.invoke('report:exportPdf', html, fileName),
 
   openMiniView: (): Promise<void> => ipcRenderer.invoke('window:openMini'),
 

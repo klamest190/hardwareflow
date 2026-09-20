@@ -2,7 +2,9 @@ import { Clock, FlaskConical, Monitor, Pause, Play, Radio, Server } from 'lucide
 
 import { formatUptime } from '../lib/format'
 import { loadColor, STATUS_COLORS } from '../lib/status'
+import type { ReportExport } from '../services/reportService'
 import type { HardwareSource, Headroom, SystemInfo } from '../types/hardware'
+import { ReportExportButton } from './ReportExportButton'
 
 interface DashboardHeaderProps {
   /** Name of the page on screen. */
@@ -12,6 +14,8 @@ interface DashboardHeaderProps {
   source: HardwareSource
   paused: boolean
   onTogglePaused: () => void
+  /** Writes the PDF report. Absent in views that have no report to write. */
+  onExportReport?: () => Promise<ReportExport>
 }
 
 /**
@@ -79,7 +83,15 @@ function MetaItem({ icon: Icon, label, value }: { icon: typeof Server; label: st
   )
 }
 
-export function DashboardHeader({ title, system, headroom, source, paused, onTogglePaused }: DashboardHeaderProps) {
+export function DashboardHeader({
+  title,
+  system,
+  headroom,
+  source,
+  paused,
+  onTogglePaused,
+  onExportReport,
+}: DashboardHeaderProps) {
   return (
     <header className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
       <div className="min-w-0">
@@ -96,6 +108,8 @@ export function DashboardHeader({ title, system, headroom, source, paused, onTog
       </div>
 
       <div className="flex shrink-0 items-center gap-3">
+        {onExportReport && <ReportExportButton onExport={onExportReport} />}
+
         <button
           type="button"
           onClick={onTogglePaused}

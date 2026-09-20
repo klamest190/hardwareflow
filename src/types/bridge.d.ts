@@ -25,6 +25,16 @@ export interface KillResult {
   refused: string | null
 }
 
+/** What came of a PDF export — enough for the button to say so, never a raw stack. */
+export interface PdfReportResult {
+  /** Where the file was written; `null` when cancelled or failed. */
+  path: string | null
+  /** `true` when the user closed the save dialog. */
+  cancelled: boolean
+  /** Set when the export actually went wrong. */
+  error: string | null
+}
+
 /**
  * The surface the Electron preload script exposes to the renderer. Absent when the
  * app runs in a plain browser, which is how the facade decides between the native
@@ -55,6 +65,12 @@ export interface HardwareFlowBridge {
   getSettings(): Promise<DesktopSettings>
   /** Applies a partial update and returns the settings as they now stand. */
   updateSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings>
+  /**
+   * Prints a finished report document to PDF and asks where to save it. The renderer
+   * supplies the HTML because it holds the readings; only the main process can print
+   * and write files.
+   */
+  exportPdfReport(html: string, fileName: string): Promise<PdfReportResult>
   /** Opens the always-on-top mini view, or focuses it. */
   openMiniView(): Promise<void>
   /** Closes the window this renderer lives in — the mini view's own close button. */

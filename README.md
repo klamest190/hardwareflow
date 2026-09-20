@@ -51,7 +51,8 @@ Zwei Betriebsarten, im Header sichtbar beschriftet:
 | Einstellungen | Autostart, Benachrichtigungen, Tray-Verhalten, Warnschwellen, Version |
 
 Die Navigation ist ab `lg` eine Seitenleiste mit Live-Werten neben den Einträgen, darunter
-eine horizontale Leiste. Reserve-Ring, Pause-Knopf und Warnungen stehen auf jeder Seite.
+eine horizontale Leiste. Reserve-Ring, Pause-Knopf, PDF-Report und Warnungen stehen auf
+jeder Seite.
 Die zuletzt geöffnete Seite wird gemerkt.
 
 ## Desktop
@@ -97,6 +98,7 @@ Die zuletzt geöffnete Seite wird gemerkt.
 | `electron/processControl.ts` | Prozesse beenden, Speicherort öffnen; Sperrliste in `processPolicy.ts` |
 | `electron/trayIcon.ts` | Tray-Symbol als Live-Balken, reines Pixelraster |
 | `electron/historyStore.ts` | Minutenwerte und Warnprotokoll einer Woche in `userData/` |
+| `electron/pdfReport.ts` | Report-HTML im unsichtbaren Fenster nach PDF drucken und sichern |
 | `electron/settings.ts` | Desktop-Einstellungen und Autostart |
 | `electron/windowState.ts` | Fenstergeometrie merken, gegen die realen Displays geprüft |
 | `src/lib/hardwareScore.ts` | HardwareFlow Score und Reserve |
@@ -104,6 +106,8 @@ Die zuletzt geöffnete Seite wird gemerkt.
 | `src/lib/history.ts` | Minuten-Buckets, Verdichtung, Laufwerksprognose, CSV, Warnprotokoll |
 | `src/lib/alerts.ts` | Warnregeln mit Haltezeit, Schwellen und ihre Grenzen |
 | `src/lib/pages.ts` | Seiten und Navigationseinträge |
+| `src/lib/reportHtml.ts` | PDF-Report als eigenständiges HTML-Dokument, rein |
+| `src/services/reportService.ts` | Export: Druck im Hauptprozess oder Druckdialog im Browser |
 | `src/services/hardwareService.ts` | Facade: Quellenwahl, Live-Fenster, Verlauf |
 | `src/services/mockHardware.ts` | Simulator inkl. einer simulierten Woche Verlauf |
 | `src/components/` | Karten, Navigation, Header, Warnbanner |
@@ -260,6 +264,32 @@ BOM — so öffnet Excel auf einem deutschen System die Datei direkt richtig.
 Die **Laufwerksprognose** ist eine lineare Regression über den freien Platz auf C:. Sie
 sagt erst nach 6 Stunden Verlauf etwas und ignoriert Schwankungen unter 200 MB pro Tag,
 damit ein einzelner großer Download nicht das Ende der Platte ankündigt.
+
+## PDF-Report
+
+Der Knopf **PDF-Report** im Kopf jeder Seite schreibt den vollständigen Hardware-Bericht:
+System, Score mit allen Teilwertungen und ihrer Grundlage, Prozessor samt Last je Kern,
+Arbeitsspeicher, Grafik, physische Datenträger und Laufwerke, Netzwerk, Akku, die zehn
+lastigsten Programme und 24 Stunden Verlauf mit Minimum, Mittel, Maximum und dem
+Warnprotokoll. Drei A4-Seiten, mit Seitenzahlen in der Fußzeile.
+
+Der Renderer baut das Dokument (`src/lib/reportHtml.ts`) — er hat die Messwerte und die
+Formatierung —, der Hauptprozess lädt es in ein unsichtbares Fenster und druckt es mit
+`printToPDF` (`electron/pdfReport.ts`). Gedruckt wird also nicht das Dashboard: das ist
+eine dunkle, scrollende Oberfläche mit Live-Diagrammen, und ein Ausdruck davon wäre ein
+Bildschirmfoto, kein Dokument. Der Report ist deshalb ein eigenes, helles, paginiertes
+Dokument — eigene Papier-Palette, aber dieselben Modulfarben, damit ein Abschnitt so
+aussieht wie seine Karte im Dashboard.
+
+Ohne Electron (`npm run dev:web`) kann nichts eine Datei schreiben; dort öffnet derselbe
+Bericht in einem neuen Tab und der Druckdialog des Browsers übernimmt („Als PDF
+speichern“). Fehlende Werte stehen auch hier als „—“, nie als Null.
+
+Geprüft wird beides: `npm run smoke` baut den Report aus der echten Maschine, aus einem
+System ohne Sensoren und aus bösartigen Gerätenamen und prüft Inhalt, Maskierung und
+Dateinamen; `npm run selftest:app` drückt den Knopf in der laufenden App und prüft die
+entstandene PDF-Datei. Im Selbsttest entfällt der Speichern-Dialog — dort steht das Ziel
+fest, weil niemand ein modales Fenster wegklicken kann.
 
 ## Farben und Hervorhebung
 

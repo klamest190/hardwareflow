@@ -21,6 +21,7 @@ import { useHistory } from './hooks/useHistory'
 import { formatBitrate, formatClockTime } from './lib/format'
 import { PAGE_ICONS, type NavItem, type PageKey } from './lib/pages'
 import { STATUS_COLORS } from './lib/status'
+import { exportReport } from './services/reportService'
 import type { AlertKey } from './types/hardware'
 
 /** Cards fade in bottom-up once per page, on a short stagger. */
@@ -146,6 +147,9 @@ export default function App() {
             source={snapshot.source}
             paused={paused}
             onTogglePaused={() => setPaused(!paused)}
+            onExportReport={() =>
+              exportReport({ snapshot, score, headroom, alerts, buckets: history.buckets, alertLog: history.alerts })
+            }
           />
 
           <AlertBanner alerts={alerts} />

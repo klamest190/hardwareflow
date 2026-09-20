@@ -48,6 +48,7 @@ import {
   trimHistory,
 } from '../src/lib/history'
 import { PAGE_ICONS } from '../src/lib/pages'
+import { buildReportHtml, reportFileName } from '../src/lib/reportHtml'
 import { computeHardwareScore, computeHeadroom, gradeForScore } from '../src/lib/hardwareScore'
 import {
   activeSource,
@@ -797,6 +798,86 @@ check(blindMarkup.includes('Keine GPU erkannt'), 'GPU-Fallback fehlt')
 check(blindMarkup.includes('n/v'), 'n/v-Marker für fehlende Werte fehlt')
 check(blindMarkup.includes('geschätzt'), 'Geschätzte Score-Teile nicht gekennzeichnet')
 check(blindMarkup.includes('Keine Verbindung'), 'Netzwerk-Fallback fehlt')
+
+// ─── 11. PDF-Report: ein vollständiges Dokument aus jeder Datenlage ─────────────────
+// Der Report wird im Hauptprozess in einem unsichtbaren Fenster gedruckt — dort sieht
+// niemand hin. Deshalb muss der Generator hier beweisen, dass er aus der echten
+// Maschine, aus einem System ohne Sensoren und aus bösartigen Namen jeweils gültiges,
+// vollständiges Markup erzeugt.
+const reportSnapshot: HardwareSnapshot = { ...real, history: snapshot.history }
+const reportHtml = buildReportHtml({
+  snapshot: reportSnapshot,
+  score: realScore,
+  headroom,
+  alerts: new AlertEngine().update(real).active,
+  buckets: week,
+  alertLog: mockAlertLog(Date.now()),
+})
+
+check(reportHtml.startsWith('<!doctype html>'), 'Report ist kein vollständiges HTML-Dokument')
+for (const expected of [
+  'Hardware-Report',
+  real.system.hostname,
+  'HardwareFlow-Score',
+  'Prozessor',
+  'Arbeitsspeicher',
+  'Grafik',
+  'Massenspeicher',
+  'Netzwerk',
+  'Akku',
+  'Verlauf der letzten 24 Stunden',
+  describeDevice(real.cpu.vendor, real.cpu.model),
+  `${realScore.total}`,
+]) {
+  check(reportHtml.includes(expected), `Report enthält "${expected}" nicht`)
+}
+for (const leak of ['undefined', 'NaN', '[object Object]', 'null']) {
+  check(!reportHtml.includes(leak), `Report enthält den Platzhalter "${leak}"`)
+}
+check(
+  (reportHtml.match(/<section class="section"/g) ?? []).length >= 10,
+  'Report hat weniger als zehn Abschnitte',
+)
+// Der Verlaufs-Chart wird als SVG gezeichnet, nicht als Bild eingebettet.
+check(reportHtml.includes('<path d="M'), 'Verlaufs-Chart im Report fehlt')
+
+// Ein System ohne Sensoren, ohne GPU-Werte und ohne Akku muss denselben Report füllen.
+const blindReport = buildReportHtml({
+  snapshot: blind,
+  score: blindScore,
+  headroom: blindHeadroom,
+  alerts: [],
+  buckets: [],
+  alertLog: [],
+})
+check(blindReport.includes('—'), 'Fehlende Werte im Report nicht als „—“ gekennzeichnet')
+check(blindReport.includes('Keine aktiven Warnungen'), 'Entwarnung im Report fehlt')
+check(blindReport.includes('Noch zu wenig Verlauf'), 'Hinweis auf fehlenden Verlauf im Report fehlt')
+for (const leak of ['undefined', 'NaN', '[object Object]']) {
+  check(!blindReport.includes(leak), `Blind-Report enthält den Platzhalter "${leak}"`)
+}
+
+// Gerätenamen kommen von Treibern und Dateisystemen — sie dürfen kein Markup einschleusen.
+const hostile = buildReportHtml({
+  snapshot: { ...blind, system: { ...blind.system, hostname: '<img src=x onerror="alert(1)">' } },
+  score: blindScore,
+  headroom: blindHeadroom,
+  alerts: [],
+  buckets: [],
+  alertLog: [],
+})
+check(!hostile.includes('<img src=x'), 'Hostname wird unmaskiert in den Report geschrieben')
+check(hostile.includes('&lt;img src=x'), 'Maskierter Hostname fehlt im Report')
+
+const fileName = reportFileName(reportSnapshot)
+check(
+  /^HardwareFlow-Report_[\w.-]+_\d{4}-\d{2}-\d{2}_\d{4}\.pdf$/.test(fileName),
+  `Dateiname "${fileName}" folgt nicht dem Report-Muster`,
+)
+check(
+  !/[\\/:*?"<>|]/.test(reportFileName({ ...blind, system: { ...blind.system, hostname: 'A:\\B/C*?' } })),
+  'Dateiname übernimmt unzulässige Zeichen aus dem Hostnamen',
+)
 
 if (failures.length > 0) {
   console.error(`✗ ${failures.length} von ${checks} Prüfung(en) fehlgeschlagen:`)
