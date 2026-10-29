@@ -125,8 +125,8 @@ function ProcessList({ title, scale, groups, value, share, info, actions, confir
               </div>
               <div className="mt-1.5 ml-[26px] h-1 overflow-hidden rounded-[2px] bg-surface-2" aria-hidden>
                 <div
-                  className="h-full bg-nominal transition-[width] duration-500 motion-reduce:transition-none"
-                  style={{ width: `${Math.min(share(group), 100)}%` }}
+                  className="size-full origin-left bg-nominal transition-transform duration-500 motion-reduce:transition-none"
+                  style={{ transform: `scaleX(${Math.min(share(group), 100) / 100})` }}
                 />
               </div>
             </li>

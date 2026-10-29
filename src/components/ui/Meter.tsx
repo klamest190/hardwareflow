@@ -13,6 +13,8 @@ interface MeterProps {
 /**
  * A single ratio against a limit, drawn like a scale: square ends, a flat track, the
  * fill in the reading's status colour. No glow — the bar is a measurement, not a light.
+ * The fill is scaled, not resized: easing a width would re-run layout on every frame of
+ * every reading and make scrolling stutter.
  */
 export function Meter({ value, color, height = 6, className = '', ariaLabel }: MeterProps) {
   const clamped = Math.min(100, Math.max(0, value))
@@ -28,8 +30,8 @@ export function Meter({ value, color, height = 6, className = '', ariaLabel }: M
       style={{ height }}
     >
       <div
-        className="h-full rounded-[2px] transition-[width] duration-500 ease-out motion-reduce:transition-none"
-        style={{ width: `${clamped}%`, backgroundColor: color }}
+        className="size-full origin-left transition-transform duration-500 ease-out motion-reduce:transition-none"
+        style={{ transform: `scaleX(${clamped / 100})`, backgroundColor: color }}
       />
     </div>
   )
@@ -52,7 +54,8 @@ interface SegmentedMeterProps {
 
 /**
  * Part-to-whole in one bar. Segments are separated by a 2 px gap instead of borders,
- * which keeps each fill's own colour true.
+ * which keeps each fill's own colour true. Shares jump to each reading: easing them would
+ * mean easing flex sizes, a layout pass per frame that stutters scrolling.
  */
 export function SegmentedMeter({ segments, height = 8, className = '', ariaLabel }: SegmentedMeterProps) {
   // A segment the platform reports as zero (Windows never reports page cache) would
@@ -69,7 +72,7 @@ export function SegmentedMeter({ segments, height = 8, className = '', ariaLabel
       {visible.map((segment) => (
         <div
           key={segment.key}
-          className="h-full transition-[flex-grow] duration-500 ease-out motion-reduce:transition-none"
+          className="h-full"
           style={{ backgroundColor: segment.color, flexGrow: Math.max(segment.value, 0.4) }}
           title={`${segment.label}: ${segment.value.toFixed(1)} %`}
         />

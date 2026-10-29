@@ -102,8 +102,8 @@ export function CpuCard({ cpu, load, fans = [], sensorProvider = null, className
                 className="flex h-10 items-end overflow-hidden rounded-[2px] bg-surface-2"
               >
                 <div
-                  className="w-full transition-[height] duration-500 ease-out motion-reduce:transition-none"
-                  style={{ height: `${Math.max(value, 2)}%`, backgroundColor: threadColor(value) }}
+                  className="size-full origin-bottom transition-transform duration-500 ease-out motion-reduce:transition-none"
+                  style={{ transform: `scaleY(${Math.max(value, 2) / 100})`, backgroundColor: threadColor(value) }}
                 />
               </div>
             ))}

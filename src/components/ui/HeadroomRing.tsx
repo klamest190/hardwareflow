@@ -24,7 +24,6 @@ export function HeadroomRing({ headroom, size = 36 }: { headroom: Headroom; size
         strokeWidth={stroke}
         strokeDasharray={circumference}
         strokeDashoffset={circumference * (1 - headroom.percent / 100)}
-        className="hf-ring"
       />
     </svg>
   )
