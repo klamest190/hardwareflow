@@ -389,13 +389,15 @@ ipcMain.handle('settings:update', (_event, patch: Partial<DesktopSettings>) => {
 
 // The renderer builds the report document — it holds the readings and the formatting.
 // The main process is only what can rasterise it and reach the filesystem.
-ipcMain.handle('report:exportPdf', (event, html: unknown, fileName: unknown) => {
-  if (typeof html !== 'string' || typeof fileName !== 'string') {
+ipcMain.handle('report:exportPdf', (_event, html: unknown, fileName: unknown) => {
+  // A bare file name only: the report is written without asking, so a name from the
+  // renderer must never reach outside the Downloads folder.
+  if (typeof html !== 'string' || typeof fileName !== 'string' || path.basename(fileName) !== fileName || !/\.pdf$/i.test(fileName)) {
     return { path: null, cancelled: false, error: 'Ungültige Report-Anfrage.' }
   }
-  // The self-test cannot click a modal save dialog, so there the target is fixed.
+  // The self-test writes into its own profile and opens no browser.
   const fixedPath = SELFTEST ? path.join(app.getPath('userData'), fileName) : null
-  return exportPdfReport(html, fileName, BrowserWindow.fromWebContents(event.sender), fixedPath)
+  return exportPdfReport(html, fileName, fixedPath)
 })
 
 ipcMain.handle('window:openMini', () => openMiniView())

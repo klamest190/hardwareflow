@@ -19,9 +19,8 @@ const FEEDBACK_MS = 6000
  * The PDF export, as one button that also reports what came of it.
  *
  * Writing a file is one of the few things in this app with an outcome the user cannot
- * see on screen: the report opens in their PDF viewer, not here. So the button carries
- * the result itself — saved, cancelled, or failed — instead of leaving a save dialog to
- * close silently.
+ * see on screen: the report lands in Downloads and opens in the browser, not here. So the
+ * button carries the result itself — saved or failed — and names the file it wrote.
  */
 export function ReportExportButton({ onExport }: ReportExportButtonProps) {
   const [phase, setPhase] = useState<Phase>('idle')
@@ -75,7 +74,7 @@ export function ReportExportButton({ onExport }: ReportExportButtonProps) {
         type="button"
         onClick={() => void run()}
         disabled={phase === 'working'}
-        title="Alle Hardware-Daten als PDF-Bericht sichern"
+        title="Alle Hardware-Daten als PDF in Downloads speichern und im Browser öffnen"
         className={BUTTON}
         style={accent ? { borderColor: accent, color: accent } : undefined}
       >

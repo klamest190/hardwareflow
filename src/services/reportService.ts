@@ -32,7 +32,8 @@ export async function exportReport(input: ReportInput): Promise<ReportExport> {
     const result = await bridge.exportPdfReport(html, fileName)
     if (result.cancelled) return { status: 'cancelled', path: null, message: null }
     if (result.error) return { status: 'error', path: null, message: result.error }
-    return { status: 'saved', path: result.path, message: `Gespeichert: ${result.path}` }
+    const savedAs = result.path?.split(/[\\/]/).pop() ?? fileName
+    return { status: 'saved', path: result.path, message: `In Downloads gespeichert: ${savedAs}` }
   }
 
   return printInBrowser(html)

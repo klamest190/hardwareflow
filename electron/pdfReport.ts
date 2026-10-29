@@ -1,10 +1,14 @@
-import { BrowserWindow, app, dialog, shell } from 'electron'
+import { BrowserWindow, app, shell } from 'electron'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import type { PdfReportResult } from '../src/types/bridge'
+import { browserLaunch, registryValue } from './browserCommand'
 
 /**
  * Turns the report HTML the renderer built into a PDF on disk.
@@ -48,20 +52,14 @@ const FOOTER_TEMPLATE = `
 const HEADER_TEMPLATE = '<div></div>'
 
 /**
- * Renders `html` to a PDF and asks the user where to put it.
+ * Renders `html` to a PDF in the user's Downloads folder and opens it in their browser —
+ * one click, no dialog, the way a download from a web page behaves.
  *
- * `parent` is the window the export was triggered from, so the save dialog is modal to
- * it instead of floating free. `fixedPath` skips the dialog and writes straight there —
- * the self-test needs the whole chain without a modal nobody can click.
+ * `fixedPath` writes there instead and opens nothing: the self-test needs the whole chain
+ * without a browser popping up on the build machine.
  */
-export async function exportPdfReport(
-  html: string,
-  suggestedName: string,
-  parent: BrowserWindow | null,
-  fixedPath: string | null = null,
-): Promise<PdfReportResult> {
-  const target = fixedPath ?? (await askWhereToSave(suggestedName, parent))
-  if (!target) return { path: null, cancelled: true, error: null }
+export async function exportPdfReport(html: string, suggestedName: string, fixedPath: string | null = null): Promise<PdfReportResult> {
+  const target = fixedPath ?? availablePath(app.getPath('downloads'), suggestedName)
 
   const scratch = path.join(os.tmpdir(), `hardwareflow-report-${randomUUID()}.html`)
   const window = new BrowserWindow(PRINT_WINDOW_OPTIONS)
@@ -83,10 +81,10 @@ export async function exportPdfReport(
     })
 
     await writeFile(target, pdf)
-    // Opening the finished file is the point of the export — a saved PDF nobody looks at
-    // is a silent no-op to the user. The self-test, which chose the path itself, does not
-    // want a PDF viewer opening on the build machine.
-    if (!fixedPath) void shell.openPath(target)
+    // Opening the finished file is the point of the export — without a dialog, a saved PDF
+    // nobody sees would be a silent no-op. The browser's viewer is the one asked for; with
+    // no browser found, whatever opens PDFs on this machine does.
+    if (!fixedPath && !(await openInBrowser(target))) void shell.openPath(target)
 
     return { path: target, cancelled: false, error: null }
   } catch (cause) {
@@ -103,18 +101,43 @@ export async function exportPdfReport(
   }
 }
 
-async function askWhereToSave(suggestedName: string, parent: BrowserWindow | null): Promise<string | null> {
-  const defaultPath = path.join(app.getPath('documents'), suggestedName)
-  const options = {
-    title: 'Hardware-Report speichern',
-    defaultPath,
-    filters: [{ name: 'PDF-Dokument', extensions: ['pdf'] }],
-    properties: ['createDirectory' as const, 'showOverwriteConfirmation' as const],
-  }
+/** `Report.pdf`, else `Report (2).pdf`, … — like a browser download, never overwriting an earlier report. */
+function availablePath(directory: string, name: string): string {
+  const { name: stem, ext } = path.parse(name)
+  let candidate = path.join(directory, name)
+  for (let copy = 2; existsSync(candidate); copy += 1) candidate = path.join(directory, `${stem} (${copy})${ext}`)
+  return candidate
+}
 
-  const result = parent
-    ? await dialog.showSaveDialog(parent, options)
-    : await dialog.showSaveDialog(options)
+const USER_CHOICE = 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice'
 
-  return result.canceled || !result.filePath ? null : result.filePath
+function queryRegistry(args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile('reg', ['query', ...args], { windowsHide: true, timeout: 5000 }, (error, stdout) =>
+      resolve(error ? null : registryValue(stdout)),
+    )
+  })
+}
+
+/**
+ * Opens the file in the browser registered for web links. Windows would hand a `.pdf` to
+ * its PDF app, which is often not the browser — so the browser is looked up the way
+ * Windows itself does for an https link, and started with the file's URL.
+ */
+async function openInBrowser(file: string): Promise<boolean> {
+  if (process.platform !== 'win32') return false
+
+  const progId = await queryRegistry([USER_CHOICE, '/v', 'ProgId'])
+  const command = progId ? await queryRegistry([`HKCR\\${progId}\\shell\\open\\command`, '/ve']) : null
+  const launch = command ? browserLaunch(command, pathToFileURL(file).href) : null
+  if (!launch) return false
+
+  return new Promise((resolve) => {
+    const child = spawn(launch.file, launch.args, { detached: true, stdio: 'ignore' })
+    child.once('spawn', () => {
+      child.unref()
+      resolve(true)
+    })
+    child.once('error', () => resolve(false))
+  })
 }

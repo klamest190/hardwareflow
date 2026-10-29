@@ -2,7 +2,7 @@ import { BatteryMedium, Cpu, HardDrive, MemoryStick, MonitorSmartphone, Network,
 import type { ReactNode } from 'react'
 
 import { describeDevice, formatBitrate, formatBytes, formatPercent } from '../lib/format'
-import { capacityStatus, loadStatus, STATUS_COLORS, STATUS_LABELS } from '../lib/status'
+import { capacityStatus, settledLoadStatus, STATUS_COLORS, STATUS_LABELS } from '../lib/status'
 import type { HardwareSnapshot } from '../types/hardware'
 import { BADGE, vendorIcon } from '../lib/vendors'
 import { VendorLogo } from './ui/DeviceName'
@@ -77,11 +77,11 @@ function Tile({ icon, label, device, figure, unit, status, graph, facts }: TileP
             {figure}
           </span>
           {unit && <span className="ml-1 text-xs text-muted">{unit}</span>}
-          {deviating && (
-            <span className="mt-1 block text-xs font-medium" style={{ color }}>
-              {STATUS_LABELS[status]}
-            </span>
-          )}
+          {/* The band line is always there, empty while nominal, so a tile keeps its height
+              when a reading crosses a threshold and nothing below it jumps. */}
+          <span className="mt-1 block h-4 text-xs font-medium" style={deviating ? { color } : undefined}>
+            {deviating ? STATUS_LABELS[status] : null}
+          </span>
         </p>
       </div>
 
@@ -103,13 +103,15 @@ export function ComponentTiles({ snapshot }: { snapshot: HardwareSnapshot }) {
   const end = history.length > 0 ? history[history.length - 1].timestamp : snapshot.capturedAt
   const latest = history[history.length - 1]
 
-  const cpuStatus = loadStatus(cpuLoad.usagePercent)
+  // Colour follows the settled band of the last seconds, not the single newest reading —
+  // otherwise a load hovering at a threshold flips the tile every second.
+  const cpuStatus = settledLoadStatus(history.map((sample) => sample.cpuPercent))
 
   const memoryPercent = memory.totalBytes > 0 ? (memory.usedBytes / memory.totalBytes) * 100 : 0
-  const memoryStatus = loadStatus(memoryPercent)
+  const memoryStatus = settledLoadStatus(history.map((sample) => sample.memoryPercent))
 
   const gpu = gpus[0]
-  const gpuStatus: Status = gpu?.usagePercent == null ? 'good' : loadStatus(gpu.usagePercent)
+  const gpuStatus: Status = gpu?.usagePercent == null ? 'good' : settledLoadStatus(history.map((sample) => sample.gpuPercent))
 
   const rx = latest?.netRxBytesPerSec ?? null
   const tx = latest?.netTxBytesPerSec ?? null

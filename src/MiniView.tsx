@@ -6,23 +6,28 @@ import { Meter } from './components/ui/Meter'
 import { useDesktopSettings } from './hooks/useDesktopSettings'
 import { useHardwareMonitor } from './hooks/useHardwareMonitor'
 import { formatBitrate } from './lib/format'
-import { loadColor, loadStatus, STATUS_COLORS } from './lib/status'
+import { settledLoadStatus, STATUS_COLORS } from './lib/status'
 
-/** One labelled bar. The value is written out, so the status colour is never the only cue. */
-function Row({ label, value, percent }: { label: string; value: string; percent: number | null }) {
-  const deviating = percent !== null && loadStatus(percent) !== 'good'
+type Status = keyof typeof STATUS_COLORS
+
+/**
+ * One labelled bar. The value is written out, so the status colour is never the only cue.
+ * The colour is the settled band of the last seconds, as on the dashboard tiles.
+ */
+function Row({ label, value, percent, status }: { label: string; value: string; percent: number | null; status: Status }) {
+  const deviating = percent !== null && status !== 'good'
   return (
     <div>
       <div className="flex items-baseline justify-between text-xs">
         <span className="text-ink-2">{label}</span>
-        <span className="hf-figure text-sm font-semibold" style={{ color: deviating ? loadColor(percent) : 'var(--color-ink)' }}>
+        <span className="hf-figure text-sm font-semibold" style={{ color: deviating ? STATUS_COLORS[status] : 'var(--color-ink)' }}>
           {value}
         </span>
       </div>
       {percent === null ? (
         <div className="mt-1 h-1.5 rounded-[2px] bg-surface-2" aria-hidden />
       ) : (
-        <Meter className="mt-1" value={percent} color={loadColor(percent)} ariaLabel={`${label} ${value}`} />
+        <Meter className="mt-1" value={percent} color={STATUS_COLORS[status]} ariaLabel={`${label} ${value}`} />
       )}
     </div>
   )
@@ -83,8 +88,14 @@ export function MiniView() {
           label="CPU"
           value={`${Math.round(cpuLoad.usagePercent)} %${cpuLoad.temperatureC !== null ? ` · ${Math.round(cpuLoad.temperatureC)} °C` : ''}`}
           percent={cpuLoad.usagePercent}
+          status={settledLoadStatus(history.map((sample) => sample.cpuPercent))}
         />
-        <Row label="RAM" value={`${Math.round(memoryPercent)} %`} percent={memoryPercent} />
+        <Row
+          label="RAM"
+          value={`${Math.round(memoryPercent)} %`}
+          percent={memoryPercent}
+          status={settledLoadStatus(history.map((sample) => sample.memoryPercent))}
+        />
         <Row
           label="GPU"
           value={
@@ -93,6 +104,7 @@ export function MiniView() {
               : `${Math.round(gpu.usagePercent)} %${gpu.temperatureC !== null ? ` · ${Math.round(gpu.temperatureC)} °C` : ''}`
           }
           percent={gpu?.usagePercent ?? null}
+          status={settledLoadStatus(history.map((sample) => sample.gpuPercent))}
         />
       </div>
 

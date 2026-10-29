@@ -100,7 +100,8 @@ Die zuletzt geöffnete Seite wird gemerkt.
 | `electron/processControl.ts` | Prozesse beenden, Speicherort öffnen; Sperrliste in `processPolicy.ts` |
 | `electron/trayIcon.ts` | Tray-Symbol als Live-Balken, reines Pixelraster |
 | `electron/historyStore.ts` | Minutenwerte und Warnprotokoll einer Woche in `userData/` |
-| `electron/pdfReport.ts` | Report-HTML im unsichtbaren Fenster nach PDF drucken und sichern |
+| `electron/pdfReport.ts` | Report-HTML im unsichtbaren Fenster nach PDF drucken, nach Downloads schreiben, im Browser öffnen |
+| `electron/browserCommand.ts` | Startbefehl des Standard-Browsers aus der Registry zerlegen, rein |
 | `electron/settings.ts` | Desktop-Einstellungen und Autostart |
 | `electron/windowState.ts` | Fenstergeometrie merken, gegen die realen Displays geprüft |
 | `src/lib/hardwareScore.ts` | HardwareFlow Score und Reserve |
@@ -277,6 +278,12 @@ Arbeitsspeicher, Grafik, physische Datenträger und Laufwerke, Netzwerk, Akku, d
 lastigsten Programme und 24 Stunden Verlauf mit Minimum, Mittel, Maximum und dem
 Warnprotokoll. Drei A4-Seiten, mit Seitenzahlen in der Fußzeile.
 
+Ein Klick genügt: Die Datei landet ohne Dialog im Downloads-Ordner (ein schon vorhandener
+Name bekommt wie beim Browser-Download ` (2)` angehängt) und öffnet sich im
+Standard-Browser — derselbe, den Windows für https-Links startet, ermittelt über
+`UrlAssociations\https\UserChoice` (`electron/browserCommand.ts`). Ist keiner zu finden,
+öffnet das Programm, das auf dem Rechner für PDFs eingetragen ist.
+
 Der Renderer baut das Dokument (`src/lib/reportHtml.ts`) — er hat die Messwerte und die
 Formatierung —, der Hauptprozess lädt es in ein unsichtbares Fenster und druckt es mit
 `printToPDF` (`electron/pdfReport.ts`). Gedruckt wird also nicht das Dashboard: das ist
@@ -293,8 +300,8 @@ speichern“). Fehlende Werte stehen auch hier als „—“, nie als Null.
 Geprüft wird beides: `npm run smoke` baut den Report aus der echten Maschine, aus einem
 System ohne Sensoren und aus bösartigen Gerätenamen und prüft Inhalt, Maskierung und
 Dateinamen; `npm run selftest:app` drückt den Knopf in der laufenden App und prüft die
-entstandene PDF-Datei. Im Selbsttest entfällt der Speichern-Dialog — dort steht das Ziel
-fest, weil niemand ein modales Fenster wegklicken kann.
+entstandene PDF-Datei. Der Selbsttest schreibt dabei in sein eigenes Profil statt nach
+Downloads und öffnet keinen Browser.
 
 ## Gestaltung: „Prüfstand“
 

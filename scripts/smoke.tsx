@@ -9,6 +9,7 @@ import {
   summarizeProcesses,
   type RawProbeState,
 } from '../electron/probeMapping'
+import { browserLaunch, registryValue } from '../electron/browserCommand'
 import { refusalReason } from '../electron/processPolicy'
 import { renderTrayIcon, TRAY_ICON_SIZE } from '../electron/trayIcon'
 import { AlertBanner } from '../src/components/AlertBanner'
@@ -51,7 +52,7 @@ import {
   trimHistory,
 } from '../src/lib/history'
 import { diagnose } from '../src/lib/diagnosis'
-import { STATUS_COLORS } from '../src/lib/status'
+import { settledLoadStatus, STATUS_COLORS } from '../src/lib/status'
 import { vendorIcon } from '../src/lib/vendors'
 import { PAGE_ICONS } from '../src/lib/pages'
 import { buildReportHtml, reportFileName } from '../src/lib/reportHtml'
@@ -624,6 +625,38 @@ check(refusalReason('SVCHOST.EXE', [900], [1]) !== null, 'svchost unabhängig vo
 check(refusalReason('chrome.exe', [4, 12], [1]) !== null, 'PID 4 (System) nicht abgelehnt')
 check(refusalReason('electron.exe', [321], [321]) !== null, 'HardwareFlow würde sich selbst beenden')
 check(refusalReason('chrome.exe', [10_001, 10_002], [1]) === null, 'Gewöhnlicher Prozess abgelehnt')
+
+// ─── 8a2. PDF-Report im Standard-Browser öffnen ────────────────────────────────────
+{
+  const url = 'file:///C:/Users/me/Downloads/HardwareFlow-Report.pdf'
+  const chrome = browserLaunch('"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --single-argument %1', url)
+  check(chrome?.file === 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', `Chrome-Pfad falsch: ${chrome?.file}`)
+  check(JSON.stringify(chrome?.args) === JSON.stringify(['--single-argument', url]), `Chrome-Argumente falsch: ${chrome?.args}`)
+  const firefox = browserLaunch('"C:\\Program Files\\Mozilla Firefox\\firefox.exe" -osint -url "%1"', url)
+  check(JSON.stringify(firefox?.args) === JSON.stringify(['-osint', '-url', url]), `Firefox-Argumente falsch: ${firefox?.args}`)
+  const bare = browserLaunch('"C:\\Browser\\browser.exe"', url)
+  check(JSON.stringify(bare?.args) === JSON.stringify([url]), `Adresse ohne %1 nicht angehängt: ${bare?.args}`)
+  check(browserLaunch('cmd /c start %1', url) === null, 'Befehl ohne absoluten .exe-Pfad angenommen')
+  check(browserLaunch('"C:\\Windows\\evil.bat" %1', url) === null, 'Nicht-.exe angenommen')
+  check(registryValue('\r\nHKEY_CURRENT_USER\\...\\UserChoice\r\n    ProgId    REG_SZ    ChromeHTML\r\n') === 'ChromeHTML', 'ProgId nicht gelesen')
+  check(registryValue('    (Standard)    REG_SZ    "C:\\x\\chrome.exe" %1') === '"C:\\x\\chrome.exe" %1', 'Standardwert nicht gelesen')
+  check(registryValue('FEHLER: Schlüssel nicht gefunden') === null, 'Fehlerausgabe als Wert gelesen')
+}
+
+// ─── 8b2. Statusfarben flackern nicht an der Schwelle ───────────────────────────────
+check(settledLoadStatus([]) === 'good', 'Leerer Verlauf nicht unauffällig')
+check(settledLoadStatus([20, 20, 20, 95]) === 'good', 'Einzelne Spitze färbt sofort ein')
+check(settledLoadStatus([20, 70, 70, 70]) === 'warning', 'Anhaltend 70 % nicht erhöht')
+{
+  // Um die 65-%-Schwelle pendelnd: einmal erhöht, bleibt es — kein Wechsel im Sekundentakt.
+  const hovering = [40, 40, 40, 70, 70, 70, 58, 72, 61, 69, 60, 71, 62]
+  const bands = hovering.map((_, index) => settledLoadStatus(hovering.slice(0, index + 1)))
+  const flips = bands.filter((band, index) => index > 0 && band !== bands[index - 1]).length
+  check(flips === 1, `Status an der Schwelle wechselt ${flips}-mal: ${bands.join(',')}`)
+}
+check(settledLoadStatus([70, 70, 70, 50, 50, 50]) === 'good', 'Deutlich gesunkene Last bleibt eingefärbt')
+check(settledLoadStatus([95, 95, 95, 85, 85, 85]) === 'serious', 'Von kritisch nicht auf hoch gefallen')
+check(settledLoadStatus([null, 70, null, 70, 70]) === 'warning', 'Lücken im Verlauf stören die Einordnung')
 
 // ─── 8c. Tray-Symbol ────────────────────────────────────────────────────────────────
 const icon = renderTrayIcon(100, 0)
