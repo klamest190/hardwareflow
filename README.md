@@ -1,12 +1,13 @@
 # HardwareFlow
 
-Dark-Mode System-Monitor als Desktop-App. Die Übersicht zeigt CPU, RAM, GPU,
-Massenspeicher und den HardwareFlow Score (0–100). Netzwerk, Prozesse, Akku, Verlauf und
-Einstellungen haben eigene Seiten. Die App läuft im Tray weiter, zeichnet eine Woche
+Dark-Mode System-Monitor als Desktop-App. Die Übersicht beginnt mit einem Satz — läuft die
+Maschine rund, und wenn nicht, was bremst sie — und zeigt darunter jede Komponente als
+Kachel mit Wert und letzter Minute. Netzwerk, Prozesse, Verlauf, Gerät (mit dem HardwareFlow
+Score, 0–100) und Einstellungen haben eigene Seiten. Die App läuft im Tray weiter, zeichnet eine Woche
 Verlauf auf und warnt per Benachrichtigung.
 
-Electron · React 19 · TypeScript · Tailwind CSS 4 · Recharts · Framer Motion · Lucide
-Icons · `systeminformation`
+Electron · React 19 · TypeScript · Tailwind CSS 4 · Recharts · Lucide Icons · Simple Icons · Archivo
+(lokal über `@fontsource-variable`) · `systeminformation`
 
 ## Befehle
 
@@ -43,16 +44,17 @@ Zwei Betriebsarten, im Header sichtbar beschriftet:
 
 | Seite | Inhalt |
 | --- | --- |
-| Übersicht | Prozessor, HardwareFlow Score, Arbeitsspeicher, Grafik, Massenspeicher |
+| Übersicht | Zustandszeile (Engpass, Reserve), Kacheln für Prozessor, Grafik, Arbeitsspeicher, jedes Laufwerk, Netzwerk und Akku, darunter die Details |
 | Netzwerk | Durchsatz der letzten Minute, aktive Adapter, WLAN-Verbindung |
-| Prozesse | Top 10 nach CPU und nach RAM, nach Programm gebündelt; Speicherort öffnen, beenden |
-| Akku | Ladestand, Zustand gegenüber der Nennkapazität, Zyklen — nur mit Akku |
+| Prozesse | Top 10 nach CPU und nach RAM, nach Programm gebündelt, mit Programmname und Icon; Speicherort öffnen, beenden |
 | Verlauf | 1 h / 24 h / 7 Tage, Warnmarken und -liste, Prognose fürs Systemlaufwerk, CSV-Export |
+| Gerät | HardwareFlow Score mit Teilwertungen, Datenblatt (Host, Betriebssystem, Laufzeit, Komponenten) |
 | Einstellungen | Autostart, Benachrichtigungen, Tray-Verhalten, Warnschwellen, Version |
 
-Die Navigation ist ab `lg` eine Seitenleiste mit Live-Werten neben den Einträgen, darunter
-eine horizontale Leiste. Reserve-Ring, Pause-Knopf, PDF-Report und Warnungen stehen auf
-jeder Seite.
+Die Navigation ist ab `lg` eine Seitenleiste mit Live-Werten neben den Einträgen und der
+Reserve am Fuß, darunter eine horizontale Leiste. Pause-Knopf, PDF-Report und Live-Anzeige
+stehen auf jeder Seite; Warnungen nennt die Übersicht in der Zustandszeile, jede andere
+Seite listet sie unter dem Kopf.
 Die zuletzt geöffnete Seite wird gemerkt.
 
 ## Desktop
@@ -110,7 +112,9 @@ Die zuletzt geöffnete Seite wird gemerkt.
 | `src/services/reportService.ts` | Export: Druck im Hauptprozess oder Druckdialog im Browser |
 | `src/services/hardwareService.ts` | Facade: Quellenwahl, Live-Fenster, Verlauf |
 | `src/services/mockHardware.ts` | Simulator inkl. einer simulierten Woche Verlauf |
-| `src/components/` | Karten, Navigation, Header, Warnbanner |
+| `src/components/` | Panels, Komponenten-Kacheln, Zustandszeile, Navigation, Header, Warnbanner |
+| `src/lib/diagnosis.ts` | Engpass für die Zustandszeile, rein |
+| `electron/processInfo.ts` | Programmnamen und Icons für die Prozessliste |
 | `src/MiniView.tsx` | Mini-Ansicht — dasselbe Bundle, geladen mit `#mini` |
 | `scripts/fixtures/` | Aufgezeichnete, anonymisierte Rohdaten echter Rechner |
 
@@ -151,7 +155,7 @@ Deshalb liest **ein** PowerShell-Prozess dauerhaft und schreibt alle 2 s eine JS
 - **Sensoren:** Läuft LibreHardwareMonitor oder OpenHardwareMonitor (als Administrator),
   kommen CPU-Temperatur (Package-Sensor, sonst heißester Kern), CPU-Leistung und
   Lüfterdrehzahlen aus deren WMI-Namespace. Mitgeliefert wird keins von beiden — sie
-  brauchen einen Kernel-Treiber. Ohne sie sagt die Prozessor-Karte, wie man die Werte
+  brauchen einen Kernel-Treiber. Ohne sie sagt das Prozessor-Panel, wie man die Werte
   bekommt.
 
 Der Prozess startet beim Warm-up, endet beim Pausieren, startet bei Absturz mit Backoff
@@ -218,7 +222,7 @@ fehlen (per `npm run probe` nachprüfbar):
 
 `computeHardwareScore` bewertet, was die Maschine **ist** — CPU, GPU, RAM, Speicher und
 Ausstattung. Er hängt nicht an der Last und bleibt bei jedem Tick gleich. Was die Maschine
-gerade **übrig hat**, zeigt getrennt davon der Reserve-Ring im Header
+gerade **übrig hat**, zeigt getrennt davon die Reserve (Zustandszeile, Seitenleiste, Mini-Ansicht)
 (`computeHeadroom`: 100 − gewichtete Last der letzten 10 s).
 
 | Baustein | Gewicht | 100 Punkte bei |
@@ -246,7 +250,7 @@ auf 74, die simulierte Workstation auf 99.
 schlägt einen 24-Thread-Xeon von 2017, und eine Radeon 890M ist keine Intel UHD. Der Score
 schlägt das Modell deshalb in `benchmarks.ts` nach — gerundete Richtwerte auf einer
 PassMark-ähnlichen Skala, keine Messung dieses Geräts. Unbekannte Modelle werden aus
-Threads × Basistakt bzw. VRAM geschätzt und im Dashboard als „geschätzt“ markiert. Gezählt
+Threads × Basistakt bzw. VRAM geschätzt und auf der Seite Gerät als „geschätzt“ markiert. Gezählt
 wird die stärkste GPU, nicht die zuerst gelistete, damit eine schlafende dGPU nicht hinter
 die iGPU fällt.
 
@@ -278,8 +282,9 @@ Formatierung —, der Hauptprozess lädt es in ein unsichtbares Fenster und druc
 `printToPDF` (`electron/pdfReport.ts`). Gedruckt wird also nicht das Dashboard: das ist
 eine dunkle, scrollende Oberfläche mit Live-Diagrammen, und ein Ausdruck davon wäre ein
 Bildschirmfoto, kein Dokument. Der Report ist deshalb ein eigenes, helles, paginiertes
-Dokument — eigene Papier-Palette, aber dieselben Modulfarben, damit ein Abschnitt so
-aussieht wie seine Karte im Dashboard.
+Dokument mit eigener Papier-Palette. Die Abschnitte tragen die Modulfarben aus
+`palette.ts`, dieselben wie die Reihen im Verlaufsdiagramm; Auslastungsbalken folgen wie in
+der App den Statusfarben, im Normalbereich also Grau.
 
 Ohne Electron (`npm run dev:web`) kann nichts eine Datei schreiben; dort öffnet derselbe
 Bericht in einem neuen Tab und der Druckdialog des Browsers übernimmt („Als PDF
@@ -291,24 +296,59 @@ Dateinamen; `npm run selftest:app` drückt den Knopf in der laufenden App und pr
 entstandene PDF-Datei. Im Selbsttest entfällt der Speichern-Dialog — dort steht das Ziel
 fest, weil niemand ein modales Fenster wegklicken kann.
 
-## Farben und Hervorhebung
+## Gestaltung: „Prüfstand“
 
-Die Modulfarben (`src/lib/palette.ts`) sind validierte Dark-Mode-Slots, geprüft gegen die
-Kartenfläche `#14161c`: Blau CPU, Aqua RAM, Violett GPU, Gelb Speicher, Orange Netzwerk,
-Magenta Akku. Wo mehrere in einem Diagramm stehen (Verlauf), gilt die Reihenfolge
-CPU → RAM → GPU. Sie besteht alle Nachbarschaftsprüfungen, auch für Farbfehlsichtigkeit.
-CPU direkt neben GPU besteht sie nicht. Upload im Netzwerkdiagramm ist eine dünne graue
-Linie, also über Form und Gewicht unterscheidbar, nicht nur über die Farbe.
+Die App liest sich wie ein kalibriertes Messgerät: Gehäuse in Graphit (`#1e2124`),
+Skalen-Weiß (`#e6e3dc`) für Text und Messkurven — und **Farbe nur, wenn ein Wert seinen
+normalen Bereich verlässt**. Ein Bildschirm ohne Farbe ist eine Maschine ohne Problem. Die
+Tokens stehen in `src/index.css`.
 
-Die Status-Palette (`lib/status.ts`) ist davon getrennt und wird nie als Serienfarbe
-verwendet. Werte und Labels tragen Ink-Tokens, nie die Datenfarbe.
+- **Status statt Identität.** `STATUS_COLORS.good` ist bewusst kein Grün, sondern das
+  neutrale Skalen-Grau. Erst `warning` (Amber), `serious` (Orange) und `critical` (Rot)
+  färben — Wert, Kurve und Balken zugleich, dazu das Band in Worten („erhöht“, „hoch“,
+  „kritisch“), damit die Farbe nie allein trägt. Das gilt auch fürs Tray-Symbol.
+- **Bedienfarbe.** Ein Blau (`#6fa8ff`) nur für Fokus, Auswahl und Schalter, nie für einen
+  Messwert.
+- **Schrift.** Archivo mit Breitenachse, lokal eingebunden (die CSP erlaubt keine externen
+  Verbindungen). Normale Breite für Text, schmal (`.hf-figure`) für Messwerte, immer mit
+  Tabellenziffern. Skala 12 / 14 / 17 / 22 / 32 / 56 px, nichts unter 12 px.
+- **Kacheln** (`ComponentTiles.tsx`). Jede Komponente hat dieselbe Form: Name, Modell,
+  Wert, die letzte Minute als Kurve (Laufwerke und Akku als Füllstand) und zwei Eckdaten.
+  Eine abweichende Kachel bekommt eine Linie oben, den Wert in Statusfarbe und das Band in
+  Worten. Kurven (`ui/Trace.tsx`) sind gerade Strecken zwischen den Messpunkten, ohne
+  Glättung, die Spitzen erfinden würde; eine Lücke bleibt eine Lücke.
+- **Herstellerlogos** (`lib/vendors.ts`, Symbole aus `simple-icons`, CC0; die Marken gehören
+  ihren Inhabern). Erkannt am Gerätenamen — NVIDIA, Intel, AMD, Qualcomm, Samsung u. a. —
+  und in Markenfarbe auf einem hellen Aufkleber. Der hält das Logo lesbar (Intel-Blau auf
+  Graphit wäre es nicht) und trennt es von den Statusfarben: Farbe auf dem Aufkleber ist
+  ein Logo, nie ein Messwert. Wo kein Hersteller erkannt wird, trägt die Kachel ein
+  Bauteil-Symbol.
+- **Zustandszeile** (`lib/diagnosis.ts`). Eine ruhige Zeile über den Kacheln, keine
+  Schlagzeile — die betroffene Kachel trägt die Farbe schon. Eine ausgelöste Warnung gewinnt; ohne Warnung
+  der Wert, der am tiefsten in seinem Band steht — CPU und GPU über das Reserve-Fenster
+  gemittelt, damit eine Sekunde Spitze nicht die Überschrift umschreibt. Wo die
+  Prozessliste den Verursacher kennt, nennt der Satz ihn.
+- **Prozessbalken** zeigen den Anteil an der ganzen Maschine, nicht am Spitzenreiter: Ein
+  Programm mit 0,8 % CPU ist ein kurzer Balken.
+- **Score ohne Statusfarbe.** Der Score beschreibt, was die Maschine *ist*, keinen Zustand;
+  er steht als Position auf einer Skala mit markierten Bändern, nicht als Tacho.
+- **Verlauf** ist die eine Stelle mit mehreren Reihen in einem Diagramm. Dort gelten die
+  validierten Modulfarben aus `src/lib/palette.ts` (Reihenfolge CPU → RAM → GPU); sie
+  bestehen auch auf der helleren Panel-Fläche `#272b30` 3:1. Der PDF-Report nutzt sie
+  weiter für seine Abschnitte.
+- **Bewegung.** Nur der Live-Punkt im Kopf blinkt einmal pro Messung, Balken gleiten in
+  ihren Wert. Beides schaltet `prefers-reduced-motion` ab.
 
-Die Hardware-Karten tragen einen Neon-Akzent, der aus der einen Custom Property
-`--hf-accent` gemischt wird. Score- und Verlaufskarte sind bewusst `quiet`.
+**Fenster.** Das Hauptfenster ist rahmenlos mit eigenem Titelstreifen (`titleBarStyle:
+'hidden'`); die nativen Fensterknöpfe liegen über dessen rechtem Ende. Ab Windows 11 22H2
+(Build 22621) bekommt es einen Mica-Hintergrund, den Titelstreifen und Seitenleiste
+durchlassen; die Messflächen bleiben deckend. Ältere Systeme bekommen die deckende
+Gehäusefarbe. Nur der Inhalt scrollt, der Rahmen steht.
 
-Bewegung respektiert `prefers-reduced-motion`: Framer Motion global über
-`MotionConfig reducedMotion="user"`, der Gauge über `useReducedMotion()`, die
-CSS-Übergänge über eine Media-Query.
+**Programmnamen und Icons** (`electron/processInfo.ts`). Der Hauptprozess liest für jede
+neue `.exe` den `FileDescription` aus der Versionsressource (ein PowerShell-Aufruf für
+alle neuen Pfade zusammen) und das Icon über `app.getFileIcon`, und merkt sich beides
+pro Pfad. Ohne Desktop-Bridge zeigt die Liste die Dateinamen.
 
 ## Hinweis für Editor-Terminals
 

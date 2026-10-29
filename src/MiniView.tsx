@@ -1,28 +1,34 @@
 import { Maximize2, X } from 'lucide-react'
 
-import { HeadroomRing } from './components/DashboardHeader'
+import { HeadroomRing } from './components/ui/HeadroomRing'
+import { LogoMark } from './components/ui/LogoMark'
 import { Meter } from './components/ui/Meter'
 import { useDesktopSettings } from './hooks/useDesktopSettings'
 import { useHardwareMonitor } from './hooks/useHardwareMonitor'
 import { formatBitrate } from './lib/format'
-import { loadColor, STATUS_COLORS } from './lib/status'
+import { loadColor, loadStatus, STATUS_COLORS } from './lib/status'
 
 /** One labelled bar. The value is written out, so the status colour is never the only cue. */
 function Row({ label, value, percent }: { label: string; value: string; percent: number | null }) {
+  const deviating = percent !== null && loadStatus(percent) !== 'good'
   return (
     <div>
-      <div className="flex items-baseline justify-between text-[11px]">
-        <span className="font-medium text-ink-2">{label}</span>
-        <span className="font-semibold text-ink tabular-nums">{value}</span>
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-ink-2">{label}</span>
+        <span className="hf-figure text-sm font-semibold" style={{ color: deviating ? loadColor(percent) : 'var(--color-ink)' }}>
+          {value}
+        </span>
       </div>
       {percent === null ? (
-        <div className="mt-1 h-1.5 rounded-full bg-surface-2" aria-hidden />
+        <div className="mt-1 h-1.5 rounded-[2px] bg-surface-2" aria-hidden />
       ) : (
-        <Meter className="mt-1" height={6} value={percent} color={loadColor(percent)} ariaLabel={`${label} ${value}`} />
+        <Meter className="mt-1" value={percent} color={loadColor(percent)} ariaLabel={`${label} ${value}`} />
       )}
     </div>
   )
 }
+
+const ICON_BUTTON = 'hf-no-drag grid size-6 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink'
 
 /**
  * The always-on-top mini window: the numbers someone glances at while doing something
@@ -34,7 +40,7 @@ export function MiniView() {
   const { snapshot, headroom, alerts } = useHardwareMonitor({ controlsProbe: false, thresholds: settings?.thresholds })
 
   if (!snapshot || !headroom) {
-    return <div className="grid h-dvh place-items-center text-[11px] text-muted">Verbinde …</div>
+    return <div className="grid h-dvh place-items-center text-xs text-muted">Verbinde …</div>
   }
 
   const { cpuLoad, memory, gpus, history } = snapshot
@@ -48,13 +54,14 @@ export function MiniView() {
       <div className="flex items-center gap-2.5">
         <HeadroomRing headroom={headroom} size={30} />
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] leading-3 font-medium tracking-wide text-muted uppercase">Reserve</p>
-          <p className="text-sm leading-5 font-semibold text-ink tabular-nums">{Math.round(headroom.percent)} % frei</p>
+          <p className="text-xs text-muted">Reserve</p>
+          <p className="hf-figure text-sm font-semibold text-ink">{Math.round(headroom.percent)} % frei</p>
         </div>
+        <LogoMark size={16} />
         <button
           type="button"
           onClick={() => void window.hardwareflow?.showDashboard()}
-          className="hf-no-drag grid size-6 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink"
+          className={ICON_BUTTON}
           aria-label="Dashboard öffnen"
           title="Dashboard öffnen"
         >
@@ -63,7 +70,7 @@ export function MiniView() {
         <button
           type="button"
           onClick={() => void window.hardwareflow?.closeWindow()}
-          className="hf-no-drag grid size-6 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-ink"
+          className={ICON_BUTTON}
           aria-label="Mini-Ansicht schließen"
           title="Schließen"
         >
@@ -89,13 +96,10 @@ export function MiniView() {
         />
       </div>
 
-      <p className="mt-auto flex items-center justify-between pt-2 text-[10px] text-muted tabular-nums">
+      <p className="mt-auto flex items-center justify-between pt-2 text-xs text-muted tabular-nums">
         {worst ? (
-          <span
-            className="truncate font-semibold"
-            style={{ color: worst.severity === 'critical' ? STATUS_COLORS.critical : STATUS_COLORS.warning }}
-          >
-            ⚠ {worst.title}
+          <span className="truncate font-semibold" style={{ color: STATUS_COLORS[worst.severity] }}>
+            {worst.severity === 'critical' ? 'Kritisch' : 'Warnung'}: {worst.title}
           </span>
         ) : (
           <>

@@ -1,8 +1,7 @@
-import { PanelTopOpen, RotateCcw, Settings } from 'lucide-react'
+import { PanelTopOpen, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 
 import { ALERT_THRESHOLD_LIMITS, DEFAULT_ALERT_THRESHOLDS } from '../lib/alerts'
-import { HUES } from '../lib/palette'
 import type { DesktopSettings } from '../types/bridge'
 import type { AlertThresholds } from '../types/hardware'
 import { Card } from './ui/Card'
@@ -68,8 +67,50 @@ function ThresholdInput({
       onKeyDown={(event) => {
         if (event.key === 'Enter') event.currentTarget.blur()
       }}
-      className="w-20 rounded-lg border border-hairline bg-surface-2 px-2 py-1 text-right text-xs text-ink tabular-nums focus-visible:border-cpu focus-visible:outline-none"
+      className="hf-figure w-20 rounded-md border border-hairline bg-surface-2 px-2 py-1 text-right text-sm text-ink focus-visible:border-signal"
     />
+  )
+}
+
+/** An on/off setting as a switch: the state is the position, and the label says what it does. */
+function Switch({
+  label,
+  hint,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className={`flex items-start justify-between gap-6 ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+      <span>
+        <span className="block text-sm font-medium text-ink">{label}</span>
+        <span className="mt-0.5 block max-w-[68ch] text-sm text-muted">{hint}</span>
+      </span>
+      <span className="relative mt-0.5 shrink-0">
+        <input
+          type="checkbox"
+          role="switch"
+          className="peer sr-only"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span
+          aria-hidden
+          className="block h-5 w-9 rounded-full border border-baseline bg-surface-2 transition-colors peer-checked:border-signal peer-checked:bg-signal peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-signal"
+        />
+        <span
+          aria-hidden
+          className="absolute top-[3px] left-[3px] size-3.5 rounded-full bg-ink-2 transition-transform peer-checked:translate-x-4 peer-checked:bg-plane motion-reduce:transition-none"
+        />
+      </span>
+    </label>
   )
 }
 
@@ -77,8 +118,8 @@ function ThresholdInput({
 export function SettingsCard({ settings, onUpdate, onOpenMini, className }: SettingsCardProps) {
   if (!settings) {
     return (
-      <Card title="Einstellungen" subtitle="Nur in der Desktop-App" icon={Settings} accent={HUES.neutral} className={className}>
-        <p className="text-xs leading-5 text-muted">
+      <Card subtitle="Nur in der Desktop-App" className={className}>
+        <p className="text-sm text-muted">
           Autostart, Benachrichtigungen und das Tray-Symbol gibt es nur in der Desktop-App. Im Browser läuft der
           Simulator.
         </p>
@@ -113,52 +154,44 @@ export function SettingsCard({ settings, onUpdate, onOpenMini, className }: Sett
   ]
 
   return (
-    <Card title="Einstellungen" subtitle="Verhalten der Desktop-App" icon={Settings} accent={HUES.neutral} className={className}>
+    <Card title="Verhalten" subtitle="Was die App tut, während sie nicht im Vordergrund ist" className={className}>
       <ul className="divide-y divide-hairline">
         {rows.map((row) => (
-          <li key={row.key} className="py-3 first:pt-0">
-            <label
-              className={`flex items-start gap-3 ${row.disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-            >
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 shrink-0 accent-cpu"
-                checked={settings[row.key]}
-                disabled={row.disabled}
-                onChange={(event) => onUpdate({ [row.key]: event.target.checked })}
-              />
-              <span>
-                <span className="block text-[13px] font-medium text-ink">{row.label}</span>
-                <span className="mt-0.5 block text-xs leading-5 text-muted">{row.hint}</span>
-              </span>
-            </label>
+          <li key={row.key} className="py-3.5 first:pt-0">
+            <Switch
+              label={row.label}
+              hint={row.hint}
+              checked={settings[row.key]}
+              disabled={row.disabled}
+              onChange={(checked) => onUpdate({ [row.key]: checked })}
+            />
           </li>
         ))}
       </ul>
 
-      <div className="mt-2 border-t border-hairline pt-4">
+      <div className="mt-3 border-t border-hairline pt-4">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 className="text-[13px] font-medium text-ink">Warnschwellen</h3>
+          <h3 className="text-md font-semibold text-ink">Warnschwellen</h3>
           <button
             type="button"
             onClick={() => onUpdate({ thresholds: DEFAULT_ALERT_THRESHOLDS })}
-            className="flex items-center gap-1.5 text-[11px] text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-cpu"
+            className="flex items-center gap-1.5 text-sm text-muted hover:text-ink"
           >
-            <RotateCcw aria-hidden size={11} />
-            Standard
+            <RotateCcw aria-hidden size={13} />
+            Auf Standard zurücksetzen
           </button>
         </div>
-        <p className="mt-0.5 text-xs leading-5 text-muted">
+        <p className="mt-0.5 text-sm text-muted">
           Gelten für das Banner im Dashboard und für die Benachrichtigungen gleichermaßen.
         </p>
-        <ul className="mt-3 grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
+        <ul className="mt-4 grid gap-x-10 gap-y-3 sm:grid-cols-2">
           {THRESHOLD_FIELDS.map((field) => {
             const limits = ALERT_THRESHOLD_LIMITS[field.key]
             return (
               <li key={field.key} className="flex items-center justify-between gap-3">
                 <span className="min-w-0">
-                  <span className="block text-xs text-ink-2">{field.label}</span>
-                  <span className="block text-[11px] text-muted">
+                  <span className="block text-sm text-ink-2">{field.label}</span>
+                  <span className="block text-xs text-muted">
                     {field.hint} · {limits.min}–{limits.max}
                   </span>
                 </span>
@@ -170,7 +203,7 @@ export function SettingsCard({ settings, onUpdate, onOpenMini, className }: Sett
                     label={`${field.label} in ${field.unit}`}
                     onCommit={(value) => onUpdate({ thresholds: { ...settings.thresholds, [field.key]: value } })}
                   />
-                  <span className="w-5 text-[11px] text-muted">{field.unit}</span>
+                  <span className="w-6 text-xs text-muted">{field.unit}</span>
                 </span>
               </li>
             )
@@ -180,21 +213,21 @@ export function SettingsCard({ settings, onUpdate, onOpenMini, className }: Sett
 
       {onOpenMini && (
         <div className="mt-2 flex items-center justify-between gap-4 border-t border-hairline pt-4">
-          <p className="text-xs leading-5 text-muted">
+          <p className="text-sm text-muted">
             Die Mini-Ansicht zeigt Reserve, CPU, RAM und GPU in einem kleinen Fenster über allen anderen.
           </p>
           <button
             type="button"
             onClick={onOpenMini}
-            className="flex shrink-0 items-center gap-2 rounded-xl border border-hairline px-3 py-2 text-xs font-medium text-ink-2 hover:border-baseline hover:text-ink focus-visible:outline-2 focus-visible:outline-cpu"
+            className="flex shrink-0 items-center gap-2 rounded-md border border-hairline px-3 py-1.5 text-sm text-ink-2 hover:border-baseline hover:text-ink"
           >
-            <PanelTopOpen aria-hidden size={13} />
-            Öffnen
+            <PanelTopOpen aria-hidden size={14} />
+            Mini-Ansicht öffnen
           </button>
         </div>
       )}
 
-      <p className="mt-4 border-t border-hairline pt-3 text-[11px] text-muted tabular-nums">
+      <p className="mt-4 border-t border-hairline pt-3 text-xs text-muted tabular-nums">
         HardwareFlow {settings.version}
       </p>
     </Card>

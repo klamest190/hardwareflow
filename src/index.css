@@ -1,40 +1,54 @@
 @import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
 
 /*
- * HardwareFlow design tokens.
+ * HardwareFlow design tokens — "Prüfstand".
  *
- * The series hues are the validated dark-mode categorical slots (blue / aqua /
- * violet / yellow) checked against this app's chart surface (#14161c):
- * lightness band, chroma floor, adjacent CVD separation, normal-vision floor
- * and 3:1 contrast all pass. Do not hand-tune them — re-run the palette
- * validator if they ever need to change.
+ * The app reads like a calibrated instrument: graphite housing, a warm scale-white for
+ * text and traces, and colour only where a reading leaves its normal band. A screen in
+ * which nothing is coloured is a machine in which nothing is wrong.
+ *
+ * Archivo is bundled locally (the built renderer's CSP allows no outside connections)
+ * and carries hierarchy through its width axis rather than through colour: normal width
+ * for words, condensed for measured figures.
  */
 @theme {
-  --font-sans: system-ui, -apple-system, "Segoe UI", "Inter", sans-serif;
+  --font-sans: "Archivo Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 
-  /* Surfaces & chrome (slate/zinc) */
-  --color-plane: #0a0b0f;
-  --color-surface: #14161c;
-  --color-surface-2: #1b1e26;
-  --color-hairline: #262a33;
-  --color-baseline: #333845;
+  /* Type scale: 12 / 14 / 17 / 22 / 32 / 56. Nothing below 12 px. */
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-md: 17px;
+  --text-md--line-height: 24px;
+  --text-lg: 22px;
+  --text-lg--line-height: 28px;
+  --text-xl: 32px;
+  --text-xl--line-height: 36px;
+  --text-display: 56px;
+  --text-display--line-height: 56px;
 
-  /* Ink */
-  --color-ink: #f1f5f9;
-  --color-ink-2: #cbd5e1;
-  --color-muted: #8b93a3;
+  /* Housing, panels, scale lines */
+  --color-plane: #1e2124;
+  --color-surface: #272b30;
+  --color-surface-2: #30353b;
+  --color-hairline: #3a4047;
+  --color-baseline: #4a515a;
 
-  /* Series identity — one hue per subsystem */
-  --color-cpu: #3987e5;
-  --color-ram: #199e70;
-  --color-gpu: #9085e9;
-  --color-disk: #c98500;
+  /* Scale ink: warm white on graphite */
+  --color-ink: #e6e3dc;
+  --color-ink-2: #bdbab2;
+  --color-muted: #9a978f;
 
-  /* Status — reserved, never used as a series colour */
-  --color-good: #0ca30c;
-  --color-warning: #fab219;
-  --color-serious: #ec835a;
-  --color-critical: #d03b3b;
+  /* Operation — focus, selection, links. Never a reading. */
+  --color-signal: #6fa8ff;
+
+  /* Deviation — the only colours a reading can take */
+  --color-nominal: #a8a49b;
+  --color-warning: #f2a93b;
+  --color-serious: #ec7a4a;
+  --color-critical: #e5484d;
 }
 
 @layer base {
@@ -47,84 +61,32 @@
     background-color: var(--color-plane);
     color: var(--color-ink);
     font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
     -webkit-font-smoothing: antialiased;
   }
 
-  /* Recharts focus rings would otherwise sit on top of the cards. */
+  /* One focus treatment for everything that can take the keyboard. */
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+
+  /* Recharts focus rings would otherwise sit on top of the panels. */
   .recharts-wrapper:focus,
   .recharts-surface:focus {
     outline: none;
   }
 }
 
-
-/*
- * Neon accent of the hardware cards.
- *
- * Every shade is derived from the `--hf-accent` custom property the Card component
- * sets, so a module's hue is stated once in TSX and never mixed by hand. The colour
- * stays in chrome — border, bloom, icon chip — so no saturated fill ever sits under
- * text and the ink tokens keep their contrast.
- */
-.hf-chip {
-  background-color: color-mix(in oklab, var(--hf-accent) 12%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hf-accent) 20%, transparent);
+/* Measured figures: condensed, tabular, so a column of numbers stays a column. */
+.hf-figure {
+  font-stretch: 80%;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
-.hf-card-neon {
-  border-color: color-mix(in oklab, var(--hf-accent) 34%, transparent);
-  box-shadow:
-    inset 0 1px 0 0 color-mix(in oklab, var(--hf-accent) 16%, transparent),
-    0 0 24px -12px var(--hf-accent),
-    0 18px 40px -30px #000;
-  transition:
-    box-shadow 260ms ease,
-    border-color 260ms ease;
-}
-
-/* Pointing at a card lifts its glow — makes the grid feel live without animating
-   anything on its own. */
-.hf-card-neon:hover {
-  border-color: color-mix(in oklab, var(--hf-accent) 56%, transparent);
-  box-shadow:
-    inset 0 1px 0 0 color-mix(in oklab, var(--hf-accent) 26%, transparent),
-    0 0 36px -10px var(--hf-accent),
-    0 20px 44px -28px #000;
-}
-
-.hf-card-neon .hf-chip {
-  background-color: color-mix(in oklab, var(--hf-accent) 20%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--hf-accent) 42%, transparent),
-    0 0 18px -6px var(--hf-accent);
-}
-
-/* The header's score ring. A class rather than an inline style, so the reduced-motion
-   guard below can reach it. */
-.hf-score-ring {
-  transition: stroke-dashoffset 500ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hf-card-neon,
-  .hf-score-ring {
-    transition: none;
-  }
-}
-
-/* Faint plane texture so the cards read as raised panels, not floating boxes. One
-   very low-alpha wash per subsystem hue, placed roughly where that card sits. */
-.hf-plane {
-  background-image:
-    radial-gradient(circle at 12% -8%, rgba(57, 135, 229, 0.12), transparent 52%),
-    radial-gradient(circle at 88% -4%, rgba(144, 133, 233, 0.1), transparent 48%),
-    radial-gradient(circle at 20% 78%, rgba(25, 158, 112, 0.08), transparent 45%),
-    radial-gradient(circle at 78% 88%, rgba(201, 133, 0, 0.07), transparent 45%);
-  background-attachment: fixed;
-}
-
-/* Mini window: frameless, so the surface itself moves the window. Buttons opt out, or
-   Windows would swallow their clicks as the start of a drag. */
+/* The title strip doubles as the window's drag handle. */
 .hf-drag {
   -webkit-app-region: drag;
 }
@@ -133,7 +95,69 @@
   -webkit-app-region: no-drag;
 }
 
+/*
+ * Window chrome on Windows 11: the main window gets a Mica backdrop, and the strip and
+ * sidebar let it through so the app sits in the desktop like a system tool. Reading
+ * panels stay opaque — a measurement never sits on a moving wallpaper.
+ */
+.hf-mica body {
+  background-color: transparent;
+}
+
+.hf-chrome {
+  background-color: var(--color-plane);
+}
+
+/* Mostly opaque on purpose: an unfocused window shows Windows' flat fallback instead of
+   Mica, which can be light. At 86 % housing the strip stays dark and readable either way,
+   and the backdrop is a tint, not a picture. */
+.hf-mica .hf-chrome {
+  background-color: color-mix(in oklab, var(--color-plane) 86%, transparent);
+}
+
+/* The reserve ring eases between readings; the reduced-motion guard below reaches it. */
+.hf-ring {
+  transition: stroke-dashoffset 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The live dot blinks once per reading — the only thing on screen that moves on its own. */
+@keyframes hf-tick {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+.hf-tick {
+  animation: hf-tick 900ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hf-ring {
+    transition: none;
+  }
+
+  .hf-tick {
+    animation: none;
+  }
+}
+
 .hf-mini,
 .hf-mini body {
   overflow: hidden;
+}
+
+/*
+ * The shell is a fixed frame — title strip and sidebar stay, only the content scrolls.
+ * For a full-page screenshot the self-test switches it back to document flow.
+ */
+.hf-capture .hf-shell {
+  height: auto;
+  min-height: 100dvh;
+}
+
+.hf-capture .hf-scroll {
+  overflow: visible;
 }

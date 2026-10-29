@@ -1,11 +1,9 @@
-import { BatteryCharging, BatteryFull, BatteryLow, BatteryMedium, PlugZap } from 'lucide-react'
+import { PlugZap } from 'lucide-react'
 
 import { formatMinutes } from '../lib/format'
-import { HUES } from '../lib/palette'
 import { STATUS_COLORS } from '../lib/status'
 import type { BatteryInfo } from '../types/hardware'
-import { AnimatedNumber } from './ui/AnimatedNumber'
-import { Card } from './ui/Card'
+import { Card, PanelHeading } from './ui/Card'
 import { Meter } from './ui/Meter'
 import { NotAvailable } from './ui/NotAvailable'
 import { Stat, StatGrid } from './ui/Stat'
@@ -22,26 +20,21 @@ function healthStatus(percent: number) {
   return { label: 'Gut', color: STATUS_COLORS.good }
 }
 
-function chargeColor(percent: number) {
-  if (percent <= 10) return STATUS_COLORS.critical
-  if (percent <= 20) return STATUS_COLORS.serious
+/** Low charge only matters off the charger. */
+function chargeColor(battery: BatteryInfo) {
+  if (battery.acConnected) return STATUS_COLORS.good
+  if (battery.percent <= 10) return STATUS_COLORS.critical
+  if (battery.percent <= 20) return STATUS_COLORS.serious
   return STATUS_COLORS.good
 }
 
 const mwhToWh = (mwh: number) => (mwh / 1000).toFixed(1)
 
 /**
- * Battery module: charge, power state and — the figure a notebook owner rarely sees —
+ * Battery detail: charge, power state and — the figure a notebook owner rarely sees —
  * how much of its design capacity the battery still holds.
  */
 export function BatteryCard({ battery, className }: BatteryCardProps) {
-  const Icon = battery.charging
-    ? BatteryCharging
-    : battery.percent > 60
-      ? BatteryFull
-      : battery.percent > 20
-        ? BatteryMedium
-        : BatteryLow
   const state = battery.charging
     ? 'Lädt'
     : battery.acConnected
@@ -55,47 +48,43 @@ export function BatteryCard({ battery, className }: BatteryCardProps) {
     <Card
       title="Akku"
       subtitle={state}
-      icon={Icon}
-      accent={HUES.battery}
       className={className}
       action={
-        <div>
-          <p className="text-xl leading-6 font-semibold text-ink tabular-nums">
-            <AnimatedNumber value={battery.percent} />
-            <span className="ml-0.5 text-sm font-normal text-muted">%</span>
-          </p>
-          <p className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-muted">
-            {battery.acConnected && <PlugZap aria-hidden size={11} />}
-            geladen
-          </p>
-        </div>
+        <p className="flex items-center gap-1.5 text-sm text-ink-2">
+          {battery.acConnected && <PlugZap aria-hidden size={14} className="text-muted" />}
+          <span className="hf-figure font-semibold text-ink">{Math.round(battery.percent)} %</span>
+        </p>
       }
     >
+      <PanelHeading>Ladestand</PanelHeading>
       <Meter
-        height={10}
+        className="mt-2"
+        height={8}
         value={battery.percent}
-        color={chargeColor(battery.percent)}
+        color={chargeColor(battery)}
         ariaLabel={`Ladestand ${Math.round(battery.percent)} %`}
       />
 
-      <div className="mt-5">
-        <div className="flex items-baseline justify-between gap-3">
-          <h3 className="text-xs font-medium text-ink-2">Zustand</h3>
-          <span className="text-[11px] text-muted tabular-nums">
-            {battery.healthPercent === null || !health ? (
+      <div className="mt-4">
+        <PanelHeading
+          aside={
+            battery.healthPercent === null || !health ? (
               <NotAvailable reason="Nenn- oder Vollladekapazität nicht gemeldet" />
             ) : (
               <>
                 {Math.round(battery.healthPercent)} % der Nennkapazität ·{' '}
-                <span className="font-medium text-ink-2">{health.label}</span>
+                <span className="font-medium" style={{ color: health.color === STATUS_COLORS.good ? undefined : health.color }}>
+                  {health.label}
+                </span>
               </>
-            )}
-          </span>
-        </div>
+            )
+          }
+        >
+          Zustand
+        </PanelHeading>
         {battery.healthPercent !== null && health && (
           <Meter
             className="mt-2"
-            height={6}
             value={battery.healthPercent}
             color={health.color}
             ariaLabel={`Akkuzustand ${Math.round(battery.healthPercent)} % — ${health.label}`}
@@ -105,15 +94,13 @@ export function BatteryCard({ battery, className }: BatteryCardProps) {
 
       <StatGrid columns={3} className="mt-5">
         <Stat
-          label="Nenn"
+          label="Nennkapazität"
           value={battery.designCapacityMwh === null ? <NotAvailable /> : mwhToWh(battery.designCapacityMwh)}
           hint={battery.designCapacityMwh === null ? undefined : 'Wh'}
         />
         <Stat
-          label="Voll"
-          value={
-            battery.fullChargeCapacityMwh === null ? <NotAvailable /> : mwhToWh(battery.fullChargeCapacityMwh)
-          }
+          label="Voll geladen"
+          value={battery.fullChargeCapacityMwh === null ? <NotAvailable /> : mwhToWh(battery.fullChargeCapacityMwh)}
           hint={battery.fullChargeCapacityMwh === null ? undefined : 'Wh'}
         />
         <Stat

@@ -13,16 +13,19 @@ import { refusalReason } from '../electron/processPolicy'
 import { renderTrayIcon, TRAY_ICON_SIZE } from '../electron/trayIcon'
 import { AlertBanner } from '../src/components/AlertBanner'
 import { BatteryCard } from '../src/components/BatteryCard'
+import { ComponentTiles } from '../src/components/ComponentTiles'
 import { CpuCard } from '../src/components/CpuCard'
 import { DashboardHeader } from '../src/components/DashboardHeader'
+import { DeviceCard } from '../src/components/DeviceCard'
 import { GpuCard } from '../src/components/GpuCard'
 import { HistoryCard } from '../src/components/HistoryCard'
 import { MemoryCard } from '../src/components/MemoryCard'
 import { Navigation } from '../src/components/Navigation'
-import { NetworkCard } from '../src/components/NetworkCard'
+import { ConnectionsCard, NetworkCard } from '../src/components/NetworkCard'
 import { PerformanceMeter } from '../src/components/PerformanceMeter'
 import { ProcessesCard } from '../src/components/ProcessesCard'
 import { SettingsCard } from '../src/components/SettingsCard'
+import { StatusLine } from '../src/components/StatusLine'
 import { StorageCard } from '../src/components/StorageCard'
 import { AlertEngine, DEFAULT_ALERT_THRESHOLDS, sanitizeThresholds } from '../src/lib/alerts'
 import { lookupCpu, lookupGpu } from '../src/lib/benchmarks'
@@ -47,6 +50,9 @@ import {
   MINUTE_MS,
   trimHistory,
 } from '../src/lib/history'
+import { diagnose } from '../src/lib/diagnosis'
+import { STATUS_COLORS } from '../src/lib/status'
+import { vendorIcon } from '../src/lib/vendors'
 import { PAGE_ICONS } from '../src/lib/pages'
 import { buildReportHtml, reportFileName } from '../src/lib/reportHtml'
 import { computeHardwareScore, computeHeadroom, gradeForScore } from '../src/lib/hardwareScore'
@@ -627,9 +633,9 @@ const pixel = (x: number, y: number) => {
   // BGRA → #rrggbb
   return `#${[icon[offset + 2], icon[offset + 1], icon[offset]].map((v) => v.toString(16).padStart(2, '0')).join('')}`
 }
-check(pixel(8, 6) === '#d03b3b', `Volle CPU oben nicht kritisch-rot: ${pixel(8, 6)}`)
+check(pixel(8, 6) === STATUS_COLORS.critical, `Volle CPU oben nicht kritisch-rot: ${pixel(8, 6)}`)
 check(pixel(20, 6) === '#2b303b', `Leerer RAM-Balken oben nicht leer: ${pixel(20, 6)}`)
-check(pixel(20, TRAY_ICON_SIZE - 6) === '#0ca30c', `RAM-Balken unten ohne Mindestfüllung: ${pixel(20, TRAY_ICON_SIZE - 6)}`)
+check(pixel(20, TRAY_ICON_SIZE - 6) === STATUS_COLORS.good, `RAM-Balken unten ohne Mindestfüllung: ${pixel(20, TRAY_ICON_SIZE - 6)}`)
 check(icon[3] === 0, 'Tray-Ecke nicht transparent')
 
 // ─── 9. Formatierung ─────────────────────────────────────────────────────────────────
@@ -675,29 +681,27 @@ const markup = renderToString(
       active="overview"
       onSelect={() => {}}
       onOpenMini={null}
+      headroom={headroom}
     />
     <DashboardHeader
       title="Übersicht"
-      system={snapshot.system}
-      headroom={headroom}
       source={snapshot.source}
+      capturedAt={snapshot.capturedAt}
       paused={false}
       onTogglePaused={() => {}}
     />
+    <StatusLine diagnosis={diagnose(snapshot, headroom, [])} headroom={headroom} />
+    <ComponentTiles snapshot={snapshot} />
+    <DeviceCard snapshot={snapshot} />
     <AlertBanner alerts={new AlertEngine().update(fullDrive).active} />
     <PerformanceMeter score={score} />
-    <CpuCard
-      cpu={snapshot.cpu}
-      load={snapshot.cpuLoad}
-      history={snapshot.history}
-      fans={snapshot.fans}
-      sensorProvider={snapshot.sensorProvider}
-    />
-    <MemoryCard memory={snapshot.memory} history={snapshot.history} />
+    <CpuCard cpu={snapshot.cpu} load={snapshot.cpuLoad} fans={snapshot.fans} sensorProvider={snapshot.sensorProvider} />
+    <MemoryCard memory={snapshot.memory} />
     <GpuCard gpus={snapshot.gpus} />
     <StorageCard drives={snapshot.drives} physicalDisks={snapshot.physicalDisks} />
     <NetworkCard network={snapshot.network} history={snapshot.history} />
-    <ProcessesCard processes={snapshot.processes} />
+    <ConnectionsCard network={snapshot.network} />
+    <ProcessesCard processes={snapshot.processes} memoryTotalBytes={snapshot.memory.totalBytes} />
     <HistoryCard buckets={week} alerts={mockAlertLog(Date.now())} />
     <SettingsCard settings={null} onUpdate={() => {}} onOpenMini={null} />
     <SettingsCard
@@ -755,12 +759,14 @@ const realSnapshot: HardwareSnapshot = { ...real, history: [toSample(real)] }
 const realMarkup = renderToString(
   <>
     <PerformanceMeter score={realScore} />
-    <CpuCard cpu={real.cpu} load={real.cpuLoad} history={realSnapshot.history} fans={real.fans} sensorProvider={real.sensorProvider} />
+    <CpuCard cpu={real.cpu} load={real.cpuLoad} fans={real.fans} sensorProvider={real.sensorProvider} />
+    <ComponentTiles snapshot={realSnapshot} />
     <GpuCard gpus={real.gpus} />
     <StorageCard drives={withCountersReading.drives} physicalDisks={withCountersReading.physicalDisks} />
     <StorageCard drives={real.drives} physicalDisks={real.physicalDisks} />
     <NetworkCard network={real.network} history={realSnapshot.history} />
-    <ProcessesCard processes={real.processes} />
+    <ConnectionsCard network={real.network} />
+    <ProcessesCard processes={real.processes} memoryTotalBytes={real.memory.totalBytes} />
     {real.battery && <BatteryCard battery={real.battery} />}
     <HistoryCard buckets={[]} />
   </>,
@@ -786,15 +792,57 @@ for (const expected of [
 const blindMarkup = renderToString(
   <>
     <GpuCard gpus={[]} />
-    <MemoryCard memory={blind.memory} history={blind.history} />
-    <CpuCard cpu={blind.cpu} load={{ ...blind.cpuLoad, perCore: [] }} history={blind.history} />
+    <MemoryCard memory={blind.memory} />
+    <CpuCard cpu={blind.cpu} load={{ ...blind.cpuLoad, perCore: [] }} />
+    <ComponentTiles snapshot={blind} />
     <StorageCard drives={blind.drives} physicalDisks={[]} />
     <NetworkCard network={blind.network} history={blind.history} />
-    <ProcessesCard processes={null} />
+    <ProcessesCard processes={null} memoryTotalBytes={blind.memory.totalBytes} />
     <PerformanceMeter score={blindScore} />
   </>,
 )
 check(blindMarkup.includes('Keine GPU erkannt'), 'GPU-Fallback fehlt')
+
+// ─── 12. Herstellerlogos aus dem Gerätenamen ──────────────────────────────────────
+for (const [name, vendor] of [
+  ['Intel Core Ultra 7 155H', 'Intel'],
+  ['NVIDIA GeForce RTX 4070 Laptop GPU', 'NVIDIA'],
+  ['GeForce RTX 4080 SUPER', 'NVIDIA'],
+  ['AMD Ryzen 9 7950X3D', 'AMD'],
+  ['Radeon 890M', 'AMD'],
+  ['Intel Arc Graphics', 'Intel'],
+  ['Intel Wi-Fi 7 BE202 160MHz', 'Intel'],
+  ['Samsung SSD 990 PRO 2TB', 'Samsung'],
+  ['NVMe 3500 Micron 2048GB', null],
+  ['TAP-Windows Adapter V9', null],
+] as const) {
+  const found = vendorIcon(name)?.title ?? null
+  check(found === vendor, `Herstellerlogo für "${name}": ${found} statt ${vendor}`)
+}
+
+// ─── 11. Zustandszeile: Engpass benennen ──────────────────────────────────────────
+{
+  const tight: HardwareSnapshot = {
+    ...realSnapshot,
+    memory: { ...real.memory, usedBytes: real.memory.totalBytes * 0.96, freeBytes: real.memory.totalBytes * 0.04 },
+  }
+  const calm = computeHeadroom(realSnapshot.history)
+  const tightDiagnosis = diagnose(tight, { ...calm, cpuPercent: 20, gpuPercent: 0 }, [])
+  check(tightDiagnosis.headline === 'Arbeitsspeicher wird knapp', `Engpass RAM nicht erkannt: ${tightDiagnosis.headline}`)
+  check(tightDiagnosis.severity === 'critical', `RAM bei 96 % nicht kritisch: ${tightDiagnosis.severity}`)
+  check(tightDiagnosis.detail.includes('Am meisten braucht'), `Engpass ohne Verursacher: ${tightDiagnosis.detail}`)
+
+  const idle: HardwareSnapshot = {
+    ...realSnapshot,
+    memory: { ...real.memory, usedBytes: real.memory.totalBytes * 0.3, freeBytes: real.memory.totalBytes * 0.7 },
+    drives: real.drives.map((drive) => ({ ...drive, freeBytes: drive.totalBytes * 0.5 })),
+  }
+  const idleDiagnosis = diagnose(idle, { ...calm, cpuPercent: 12, gpuPercent: 0 }, [])
+  check(idleDiagnosis.severity === 'nominal' && idleDiagnosis.headline === 'Läuft rund', `Ruhige Maschine nicht als rund erkannt: ${idleDiagnosis.headline}`)
+
+  const alerted = diagnose(idle, calm, new AlertEngine().update(fullDrive).active)
+  check(alerted.headline === 'Systemlaufwerk C: fast voll', `Warnung nicht in der Zustandszeile: ${alerted.headline}`)
+}
 check(blindMarkup.includes('n/v'), 'n/v-Marker für fehlende Werte fehlt')
 check(blindMarkup.includes('geschätzt'), 'Geschätzte Score-Teile nicht gekennzeichnet')
 check(blindMarkup.includes('Keine Verbindung'), 'Netzwerk-Fallback fehlt')

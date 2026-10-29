@@ -25,6 +25,14 @@ export interface KillResult {
   refused: string | null
 }
 
+/** How a program presents itself: the name from its version resource and its icon. */
+export interface ProgramInfo {
+  /** `FileDescription`, e.g. "Google Chrome"; `null` when the file has none worth showing. */
+  description: string | null
+  /** Small icon as a `data:` URL; `null` when the shell has none. */
+  icon: string | null
+}
+
 /** What came of a PDF export — enough for the button to say so, never a raw stack. */
 export interface PdfReportResult {
   /** Where the file was written; `null` when cancelled or failed. */
@@ -62,6 +70,10 @@ export interface HardwareFlowBridge {
   killProcesses(name: string, pids: number[]): Promise<KillResult>
   /** Opens Explorer with the executable selected. */
   showInFolder(path: string): Promise<void>
+  /** Display names and icons for executables, keyed by path. Unknown paths are left out. */
+  describePrograms(paths: string[]): Promise<Record<string, ProgramInfo>>
+  /** `'mica'` when the window has a Mica backdrop the page should let through. */
+  readonly backdrop: 'mica' | null
   getSettings(): Promise<DesktopSettings>
   /** Applies a partial update and returns the settings as they now stand. */
   updateSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings>

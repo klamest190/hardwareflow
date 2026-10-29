@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-import type { DesktopSettings, KillResult, PdfReportResult } from '../src/types/bridge'
+import type { DesktopSettings, KillResult, PdfReportResult, ProgramInfo } from '../src/types/bridge'
 import type { HardwareReading, HistoryBucket, LoggedAlert } from '../src/types/hardware'
 
 /**
@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld('hardwareflow', {
     ipcRenderer.invoke('process:kill', name, pids),
 
   showInFolder: (path: string): Promise<void> => ipcRenderer.invoke('process:showInFolder', path),
+
+  describePrograms: (paths: string[]): Promise<Record<string, ProgramInfo>> =>
+    ipcRenderer.invoke('process:describe', paths),
+
+  // Passed in by the main process as a launch argument, so it is known before first paint.
+  backdrop: process.argv.includes('--hf-backdrop=mica') ? 'mica' : null,
 
   getSettings: (): Promise<DesktopSettings> => ipcRenderer.invoke('settings:get'),
 

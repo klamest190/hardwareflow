@@ -1,8 +1,8 @@
 import type { LucideIcon } from 'lucide-react'
-import { BatteryMedium, History, LayoutDashboard, ListTree, Network, Settings } from 'lucide-react'
+import { Cpu, History, LayoutDashboard, ListTree, Network, Settings } from 'lucide-react'
 
 /** The app's pages. Kept apart from the navigation component so both can import it. */
-export type PageKey = 'overview' | 'network' | 'processes' | 'battery' | 'history' | 'settings'
+export type PageKey = 'overview' | 'network' | 'processes' | 'history' | 'device' | 'settings'
 
 export interface NavItem {
   key: PageKey
@@ -18,7 +18,7 @@ export const PAGE_ICONS: Record<PageKey, LucideIcon> = {
   overview: LayoutDashboard,
   network: Network,
   processes: ListTree,
-  battery: BatteryMedium,
+  device: Cpu,
   history: History,
   settings: Settings,
 }

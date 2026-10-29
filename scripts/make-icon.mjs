@@ -19,28 +19,17 @@ import { spawnElectron } from './electron-env.mjs'
 const SIZE = 512
 
 /**
- * The mark: the pulse line from the dashboard header, on the app's own page plane.
- * Deliberately one shape and one accent — at 16 px in a taskbar anything more is mud.
+ * The mark: three channel strips on the app's graphite housing, one of them flagged in the
+ * warning amber — the app's idea in one picture: readings stay neutral until one leaves its
+ * band. Bars survive 16 px in a taskbar where a line drawing turns to mud, and they echo
+ * the two live bars of the tray icon. Same artwork as `src/components/ui/LogoMark.tsx`.
  */
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="plane" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#1b1e26"/>
-      <stop offset="100%" stop-color="#0a0b0f"/>
-    </linearGradient>
-    <radialGradient id="bloom" cx="0.5" cy="0.44" r="0.55">
-      <stop offset="0%" stop-color="#3987e5" stop-opacity="0.34"/>
-      <stop offset="100%" stop-color="#3987e5" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-
-  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#plane)"/>
-  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bloom)"/>
-  <rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#3987e5" stroke-opacity="0.38" stroke-width="12"/>
-
-  <path d="M84 268 H164 L206 156 L268 356 L310 268 H428"
-        fill="none" stroke="#3987e5" stroke-width="38"
-        stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="#1e2124"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#3a4047" stroke-width="16"/>
+  <rect x="80" y="120" width="232" height="64" rx="14" fill="#e6e3dc"/>
+  <rect x="80" y="224" width="352" height="64" rx="14" fill="#f2a93b"/>
+  <rect x="80" y="328" width="152" height="64" rx="14" fill="#e6e3dc"/>
 </svg>`
 
 async function main() {

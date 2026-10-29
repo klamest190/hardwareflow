@@ -1,121 +1,122 @@
-import { useReducedMotion } from 'framer-motion'
-import { Gauge } from 'lucide-react'
-import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from 'recharts'
-
-import { GRADE_META, loadColor } from '../lib/status'
+import { GRADE_META } from '../lib/status'
 import type { HardwareScore } from '../types/hardware'
-import { AnimatedNumber } from './ui/AnimatedNumber'
 import { Card } from './ui/Card'
-import { Meter } from './ui/Meter'
 
 interface PerformanceMeterProps {
   score: HardwareScore
   className?: string
 }
 
-/** 270° sweep, open at the bottom — the conventional gauge reading direction. */
-const START_ANGLE = 215
-const END_ANGLE = -35
+/** Lower edge of each band, as in `hardwareScore.ts`. */
+const BANDS = [
+  { from: 0, label: 'Veraltet' },
+  { from: 40, label: 'Einstieg' },
+  { from: 55, label: 'Solide' },
+  { from: 70, label: 'Leistungsstark' },
+  { from: 85, label: 'Oberklasse' },
+]
 
 /**
- * The dashboard's hero figure: one number for what this machine can do, with the
- * weighted inputs listed underneath so the score is auditable rather than magic. It
- * does not move with load — that is the header's reserve ring.
+ * The score as a measured position on a scale, not a gauge: the bands are marked, so
+ * "74" reads as "low in Leistungsstark" at a glance. The score is what the machine *is*,
+ * not a state, so it carries no status colour.
+ */
+function ScoreScale({ total }: { total: number }) {
+  return (
+    <div className="mt-6" aria-hidden>
+      <div className="relative h-2 rounded-[2px] bg-surface-2">
+        <div className="absolute inset-y-0 left-0 rounded-[2px] bg-nominal" style={{ width: `${total}%` }} />
+        {BANDS.slice(1).map((band) => (
+          <span key={band.from} className="absolute -top-1 h-4 w-px bg-baseline" style={{ left: `${band.from}%` }} />
+        ))}
+        <span className="absolute -top-2 h-6 w-0.5 bg-ink" style={{ left: `calc(${total}% - 1px)` }} />
+      </div>
+      <div className="relative mt-2 h-4 text-xs text-muted">
+        {BANDS.map((band, index) => {
+          const to = BANDS[index + 1]?.from ?? 100
+          return (
+            <span
+              key={band.from}
+              className="absolute truncate text-center"
+              style={{ left: `${band.from}%`, width: `${to - band.from}%` }}
+            >
+              {band.label}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * HardwareFlow Score: one number for what this machine can do, with the weighted inputs
+ * listed underneath so the score is auditable rather than magic. It does not move with
+ * load — that is the reserve.
  */
 export function PerformanceMeter({ score, className }: PerformanceMeterProps) {
   const meta = GRADE_META[score.grade]
-  // Recharts has no equivalent of `MotionConfig`, so the arc's sweep is switched off here.
-  const reducedMotion = useReducedMotion()
 
   return (
-    <Card
-      title="HardwareFlow Score"
-      subtitle="Was diese Maschine kann — unabhängig von der Last"
-      icon={Gauge}
-      accent={meta.color}
-      // Quiet on purpose: the hardware cards carry the neon accent, so the score panel
-      // stays the calm anchor instead of adding a fifth glow.
-      emphasis="quiet"
-      className={className}
-      action={
-        <span
-          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
-          style={{ backgroundColor: `${meta.color}1f`, color: meta.color }}
-        >
-          <span aria-hidden className="size-1.5 rounded-full" style={{ backgroundColor: meta.color }} />
-          {meta.label}
-        </span>
-      }
-    >
-      <div className="relative mx-auto w-full max-w-[260px]">
-        <ResponsiveContainer width="100%" height={168}>
-          <RadialBarChart
-            data={[{ name: 'score', value: score.total }]}
-            innerRadius="78%"
-            outerRadius="100%"
-            startAngle={START_ANGLE}
-            endAngle={END_ANGLE}
-            barSize={14}
-          >
-            <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} axisLine={false} />
-            <RadialBar
-              dataKey="value"
-              angleAxisId={0}
-              cornerRadius={7}
-              fill={meta.color}
-              background={{ fill: `${meta.color}22` }}
-              isAnimationActive={!reducedMotion}
-              animationDuration={600}
-            />
-          </RadialBarChart>
-        </ResponsiveContainer>
-
-        {/* Hero figure, centred in the arc. */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pt-2">
-          <AnimatedNumber value={score.total} className="text-[52px] leading-none font-semibold text-ink" />
-          <span className="mt-1.5 text-[11px] font-medium tracking-wide text-muted uppercase">von 100</span>
-        </div>
-
-        {/* Scale ends, so the arc is a measurement and not a decoration. */}
-        <div className="absolute inset-x-1 bottom-1 flex justify-between text-[10px] font-medium text-muted tabular-nums">
-          <span>0</span>
-          <span>100</span>
+    <Card title="HardwareFlow Score" subtitle="Was diese Maschine kann — unabhängig von der Last" className={className}>
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
+        <p className="leading-none">
+          <span className="hf-figure text-display font-semibold text-ink">{score.total}</span>
+          <span className="ml-2 text-md text-muted">von 100</span>
+        </p>
+        <div className="pb-1">
+          <p className="text-lg font-semibold text-ink">{meta.label}</p>
+          <p className="text-sm text-ink-2">{meta.summary}</p>
         </div>
       </div>
 
-      <p className="mt-1 text-center text-xs leading-5 text-ink-2">{meta.summary}</p>
+      <ScoreScale total={score.total} />
 
-      <ul className="mt-4 space-y-3 border-t border-hairline pt-4">
-        {score.components.map((component) => (
-          <li key={component.key}>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-xs font-medium text-ink-2">{component.label}</span>
+      <table className="mt-6 w-full border-t border-hairline text-sm">
+        <caption className="sr-only">Teilwertungen des Scores</caption>
+        <thead>
+          <tr className="text-left text-xs text-muted">
+            <th scope="col" className="py-2 font-normal">Baustein</th>
+            <th scope="col" className="hidden py-2 font-normal sm:table-cell">
+              <span className="sr-only">Balken</span>
+            </th>
+            <th scope="col" className="py-2 text-right font-normal">Punkte</th>
+            <th scope="col" className="py-2 pl-4 text-right font-normal">Gewicht</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline border-t border-hairline">
+          {score.components.map((component) => (
+            <tr key={component.key} className="align-top">
+              <td className="py-2.5 pr-4">
+                <span className="font-medium text-ink">{component.label}</span>
                 {component.estimated && (
                   <span
-                    className="shrink-0 cursor-help rounded border border-hairline px-1 text-[10px] text-muted"
+                    className="ml-2 cursor-help rounded-[3px] border border-hairline px-1.5 text-xs text-muted"
                     title="Modell nicht in der Leistungstabelle — aus Threads, Takt bzw. VRAM geschätzt"
                   >
                     geschätzt
                   </span>
                 )}
-              </span>
-              <span className="shrink-0 text-xs font-semibold text-ink tabular-nums">
-                {Math.round(component.score)}
-                <span className="ml-1 font-normal text-muted">× {Math.round(component.weight * 100)} %</span>
-              </span>
-            </div>
-            <Meter
-              value={component.score}
-              color={loadColor(100 - component.score)}
-              height={5}
-              className="mt-1.5"
-              ariaLabel={`${component.label}: ${Math.round(component.score)} von 100`}
-            />
-            <p className="mt-1 text-[11px] leading-4 text-muted">{component.detail}</p>
-          </li>
-        ))}
-      </ul>
+                <span className="block text-xs text-muted">{component.detail}</span>
+              </td>
+              <td className="hidden w-[38%] py-4 sm:table-cell">
+                <div
+                  role="meter"
+                  aria-label={`${component.label}: ${Math.round(component.score)} von 100`}
+                  aria-valuenow={Math.round(component.score)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className="h-1.5 rounded-[2px] bg-surface-2"
+                >
+                  <div className="h-full rounded-[2px] bg-nominal" style={{ width: `${component.score}%` }} />
+                </div>
+              </td>
+              <td className="hf-figure py-2.5 text-right font-semibold text-ink">{Math.round(component.score)}</td>
+              <td className="hf-figure py-2.5 pl-4 text-right text-muted">{Math.round(component.weight * 100)} %</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </Card>
   )
 }

@@ -1,16 +1,29 @@
 import type { ScoreGrade } from '../types/hardware'
 
 /**
- * The status palette. Reserved for state (good → critical) and never reused as a
- * series colour, so a colour on this dashboard never means two different things.
+ * The status palette. Reserved for state and never reused as a series colour, so a colour
+ * on this dashboard never means two different things.
+ *
+ * `good` is deliberately not green: a reading inside its normal band takes the neutral
+ * scale grey, and colour appears only once something deviates. A screen with no colour on
+ * it is a machine with nothing wrong.
+ *
  * Always paired with a label, never carrying meaning by hue alone.
  */
 export const STATUS_COLORS = {
-  good: '#0ca30c',
-  warning: '#fab219',
-  serious: '#ec835a',
-  critical: '#d03b3b',
+  good: '#a8a49b',
+  warning: '#f2a93b',
+  serious: '#ec7a4a',
+  critical: '#e5484d',
 } as const
+
+/** Words for the deviating bands, written next to a coloured value so hue is never the only cue. */
+export const STATUS_LABELS: Record<keyof typeof STATUS_COLORS, string | null> = {
+  good: null,
+  warning: 'erhöht',
+  serious: 'hoch',
+  critical: 'kritisch',
+}
 
 /**
  * Severity of a utilisation reading. Thresholds are deliberately generous: an

@@ -4,6 +4,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   Notification,
   screen,
   shell,
@@ -19,6 +20,7 @@ import { HardwareProbe } from './hardwareProbe'
 import { HistoryStore } from './historyStore'
 import { exportPdfReport } from './pdfReport'
 import { isShowablePath, killProcesses } from './processControl'
+import { describePrograms } from './processInfo'
 import { applySettings, currentSettings, HIDDEN_ARG, storedSettings, storeSettings } from './settings'
 import { renderTrayIcon, TRAY_ICON_SIZE } from './trayIcon'
 import { loadWindowState, saveWindowState, settledSize } from './windowState'
@@ -56,6 +58,16 @@ if (SELFTEST) app.setPath('userData', path.join(os.tmpdir(), 'hardwareflow-selft
 const NOTIFICATION_COOLDOWN_MS = 30 * 60_000
 /** The tray tooltip does not need to be rewritten every second. */
 const TOOLTIP_INTERVAL_MS = 5000
+
+/** The housing colour of the renderer — painted before the page loads, so nothing flashes. */
+const PLANE = '#1e2124'
+/** Height of the renderer's title strip, which the native window buttons overlay. */
+const TITLE_BAR_HEIGHT = 40
+/**
+ * Mica needs Windows 11 22H2 (build 22621). Older systems keep the opaque housing colour,
+ * because a transparent window without a backdrop behind it would render black.
+ */
+const MICA = process.platform === 'win32' && Number(os.release().split('.')[2] ?? 0) >= 22621
 
 const MINI_WIDTH = 320
 const MINI_HEIGHT = 212
@@ -113,13 +125,18 @@ function createMainWindow(show: boolean) {
     height: state.height,
     minWidth: 900,
     minHeight: 700,
-    // Matches the app's page plane, so the frame does not flash white on open.
-    backgroundColor: '#0a0b0f',
+    // Matches the app's housing, so the frame does not flash white on open. With Mica the
+    // window itself stays transparent and the page decides where the backdrop shows.
+    backgroundColor: MICA ? '#00000000' : PLANE,
+    ...(MICA ? { backgroundMaterial: 'mica' as const } : {}),
+    // The renderer draws its own title strip; Windows keeps the native buttons on top of it.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: MICA ? '#00000000' : PLANE, symbolColor: '#e6e3dc', height: TITLE_BAR_HEIGHT },
     show: false,
     autoHideMenuBar: true,
     title: 'HardwareFlow',
     icon: ICON_PATH,
-    webPreferences,
+    webPreferences: { ...webPreferences, additionalArguments: MICA ? ['--hf-backdrop=mica'] : [] },
   })
 
   if (state.maximized) mainWindow.maximize()
@@ -184,7 +201,7 @@ function openMiniView() {
     minimizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    backgroundColor: '#0a0b0f',
+    backgroundColor: PLANE,
     show: false,
     title: 'HardwareFlow Mini',
     icon: ICON_PATH,
@@ -357,6 +374,10 @@ ipcMain.handle('process:showInFolder', (_event, target: unknown) => {
   if (typeof target === 'string' && isShowablePath(target)) shell.showItemInFolder(target)
 })
 
+ipcMain.handle('process:describe', (_event, paths: unknown) =>
+  Array.isArray(paths) ? describePrograms(paths.filter((item): item is string => typeof item === 'string')) : {},
+)
+
 ipcMain.handle('settings:get', () => currentSettings())
 
 ipcMain.handle('settings:update', (_event, patch: Partial<DesktopSettings>) => {
@@ -479,6 +500,9 @@ async function runSelfTest() {
     const { mkdirSync, writeFileSync } = await import('node:fs')
     mkdirSync(screenshotDir, { recursive: true })
     const contents = window.webContents
+    // The dashboard scrolls inside a fixed frame; for the picture it flows like a document.
+    await contents.executeJavaScript(`document.documentElement.classList.add('hf-capture')`)
+    await wait(150)
     const height = (await contents.executeJavaScript('document.documentElement.scrollHeight')) as number
     const width = (await contents.executeJavaScript('document.documentElement.clientWidth')) as number
     contents.debugger.attach()
@@ -488,6 +512,7 @@ async function runSelfTest() {
       clip: { x: 0, y: 0, width, height, scale: 1 },
     })) as { data: string }
     contents.debugger.detach()
+    await contents.executeJavaScript(`document.documentElement.classList.remove('hf-capture')`)
     const file = path.join(screenshotDir, `${name}.png`)
     writeFileSync(file, Buffer.from(shot.data, 'base64'))
     console.log(`[selftest] Screenshot: ${file}`)
@@ -495,12 +520,11 @@ async function runSelfTest() {
 
   // Jede Seite über die Navigation öffnen und an einem Inhalt erkennen, der nur dort steht.
   const pages: Array<{ nav: string; expect: string[]; optional?: boolean }> = [
-    { nav: 'Übersicht', expect: ['HardwareFlow Score', 'Prozessor', 'Massenspeicher', 'Reserve'] },
+    { nav: 'Übersicht', expect: ['Reserve', 'Komponenten', 'Prozessor', 'Grafik', 'Arbeitsspeicher', 'Massenspeicher', 'letzte 60 s'] },
     { nav: 'Netzwerk', expect: ['Empfang', 'Senden'] },
     { nav: 'Prozesse', expect: ['nach Programm gruppiert'] },
-    // Nur auf Rechnern mit Akku in der Navigation.
-    { nav: 'Akku', expect: ['Zustand', 'Zyklen'], optional: true },
     { nav: 'Verlauf', expect: ['Minutenwerte'] },
+    { nav: 'Gerät', expect: ['HardwareFlow Score', 'Datenblatt', 'Betriebssystem'] },
     { nav: 'Einstellungen', expect: ['Mit Windows starten'] },
   ]
   for (const page of pages) {
@@ -518,20 +542,28 @@ async function runSelfTest() {
         page.nav,
     )
     if (!arrived) problems.push(`Navigation zu "${page.nav}" hat die Seite nicht gewechselt`)
-    // Karten blenden gestaffelt ein; der Screenshot soll den fertigen Zustand zeigen.
+    // Balken gleiten in ihren Wert; der Screenshot soll den fertigen Zustand zeigen.
     await wait(800)
     const pageText = (await target.webContents.executeJavaScript('document.body.innerText')) as string
     for (const expected of page.expect) {
       if (!contains(pageText, expected)) problems.push(`Seite "${page.nav}": "${expected}" fehlt`)
     }
     console.log(`[selftest] Seite ${page.nav}: geprüft`)
-    await screenshot(target, `seite-${page.nav.toLowerCase().replace('ü', 'ue')}`)
+    await screenshot(target, `seite-${page.nav.toLowerCase().replace('ü', 'ue').replace('ä', 'ae')}`)
   }
   await clickButton('Übersicht')
 
   // PDF-Report über den echten Knopf: Renderer baut das Dokument, der Hauptprozess
   // druckt es in einem unsichtbaren Fenster. Geprüft wird die entstandene Datei, denn
   // ein leeres oder abgebrochenes PDF sieht im UI genauso aus wie ein gelungenes.
+  // Alte Reports aus früheren Läufen weg, sonst prüft der Test womöglich eine fremde Datei.
+  {
+    const { readdirSync, rmSync } = await import('node:fs')
+    const userData = app.getPath('userData')
+    for (const name of readdirSync(userData).filter((entry) => entry.endsWith('.pdf'))) {
+      rmSync(path.join(userData, name), { force: true })
+    }
+  }
   await clickButton('PDF-Report')
   const reportSaved = await waitFor(() => buttonShows('Gespeichert'), 45_000)
   if (!reportSaved) {
@@ -588,6 +620,22 @@ async function runSelfTest() {
     }
   }
 
+  // Programmnamen und Icons für die Prozessliste: direkt über denselben Weg wie die IPC.
+  if (process.platform === 'win32') {
+    const reading = probe?.reading()
+    const paths = [...(reading?.processes?.byMemory ?? []), ...(reading?.processes?.byCpu ?? [])]
+      .flatMap((group) => (group.path ? [group.path] : []))
+    if (paths.length > 0) {
+      const described = await describePrograms(paths)
+      const entries = Object.values(described)
+      const named = entries.filter((entry) => entry.description).length
+      const withIcon = entries.filter((entry) => entry.icon).length
+      console.log(`[selftest] Programme: ${entries.length} geprüft, ${named} mit Namen, ${withIcon} mit Icon`)
+      if (named === 0) problems.push('Kein Programm der Prozessliste bekommt einen Anzeigenamen')
+      if (withIcon === 0) problems.push('Kein Programm der Prozessliste bekommt ein Icon')
+    }
+  }
+
   // Desktop-Verhalten: Tray vorhanden, Schließen versteckt nur (wenn so eingestellt).
   if (!tray) problems.push('Kein Tray-Symbol')
   if (tray && storedSettings().closeToTray) {
@@ -637,6 +685,10 @@ if (!app.requestSingleInstanceLock()) {
     app.quit()
   }
 } else {
+  // The app is dark whatever the Windows theme is — the Mica backdrop and the native window
+  // buttons follow this, so a light system theme does not put light Mica behind light text.
+  nativeTheme.themeSource = 'dark'
+
   // Without it, Windows attributes notifications to "electron.app.HardwareFlow".
   app.setAppUserModelId('com.hardwareflow.desktop')
 

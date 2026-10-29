@@ -2,6 +2,7 @@ import { Check, FileDown, Loader2, TriangleAlert } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { STATUS_COLORS } from '../lib/status'
+import { BUTTON } from './ui/button'
 import type { ReportExport } from '../services/reportService'
 
 interface ReportExportButtonProps {
@@ -65,7 +66,8 @@ export function ReportExportButton({ onExport }: ReportExportButtonProps) {
     failed: { Icon: TriangleAlert, label: 'Fehlgeschlagen', spin: false },
   }[phase]
 
-  const accent = phase === 'done' ? STATUS_COLORS.good : phase === 'failed' ? STATUS_COLORS.critical : undefined
+  // Success is the expected outcome and stays neutral; only a failure takes a colour.
+  const accent = phase === 'failed' ? STATUS_COLORS.critical : undefined
 
   return (
     <div className="relative">
@@ -74,17 +76,17 @@ export function ReportExportButton({ onExport }: ReportExportButtonProps) {
         onClick={() => void run()}
         disabled={phase === 'working'}
         title="Alle Hardware-Daten als PDF-Bericht sichern"
-        className="flex items-center gap-2 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-xs font-medium text-ink-2 transition-colors hover:border-baseline hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cpu disabled:opacity-70"
-        style={accent ? { borderColor: `${accent}59`, color: accent } : undefined}
+        className={BUTTON}
+        style={accent ? { borderColor: accent, color: accent } : undefined}
       >
-        <Icon aria-hidden size={13} className={spin ? 'animate-spin' : undefined} />
+        <Icon aria-hidden size={14} className={spin ? 'animate-spin' : undefined} />
         {label}
       </button>
 
       {message && (
         <p
           role="status"
-          className="absolute top-full right-0 z-10 mt-1.5 max-w-80 truncate rounded-lg border border-hairline bg-surface-2 px-2.5 py-1.5 text-[11px] text-ink-2 shadow-lg"
+          className="absolute top-full right-0 z-10 mt-1.5 max-w-96 truncate rounded-md border border-hairline bg-surface-2 px-3 py-1.5 text-xs text-ink-2 shadow-lg"
           title={message}
         >
           {message}

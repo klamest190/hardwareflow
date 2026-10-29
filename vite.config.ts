@@ -44,9 +44,7 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             { name: 'charts', test: /node_modules[\\/](recharts|d3-|victory-vendor|es-toolkit|immer|reselect|@reduxjs|react-redux)/ },
-            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
-            { name: 'motion', test: /node_modules[\\/](framer-motion|motion-dom|motion-utils)[\\/]/ },
-          ],
+            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },          ],
         },
       },
     },
